@@ -11,14 +11,28 @@ import { getAuth, GoogleAuthProvider, type Auth } from 'firebase/auth';
 import { getDatabase, type Database } from 'firebase/database';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
+// Firebase web config is public by design (it is shipped to every browser), so
+// the real values are safe to keep in source as fallbacks. Env vars still win
+// when present — this just guarantees the client works even if the deploy host
+// didn't inject NEXT_PUBLIC_* at build time (which silently breaks auth).
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  apiKey:
+    process.env.NEXT_PUBLIC_FIREBASE_API_KEY ??
+    'AIzaSyAshRnHQecoLKT-dwZh7baURmpYBplQqQQ',
+  authDomain:
+    process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? 'oep-crew-system.firebaseapp.com',
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? 'oep-crew-system',
+  databaseURL:
+    process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL ??
+    'https://oep-crew-system-default-rtdb.firebaseio.com',
+  storageBucket:
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ??
+    'oep-crew-system.firebasestorage.app',
+  messagingSenderId:
+    process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '634616860348',
+  appId:
+    process.env.NEXT_PUBLIC_FIREBASE_APP_ID ??
+    '1:634616860348:web:5b0ade95643c727f19cab9',
 };
 
 let cachedAuth: Auth | undefined;
