@@ -1,0 +1,43 @@
+{
+  "name": "bayanati",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bayanati — Crew Management & Contract Automation for Over Exposure Productions",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "drive:auth": "node --env-file=.env.local scripts/get-drive-token.mjs",
+    "create-admins": "node --env-file=.env.local scripts/create-admins.mjs",
+    "set-admin": "node --env-file=.env.local scripts/set-admin.mjs"
+  },
+  "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "arabic-reshaper": "^1.1.0",
+    "firebase": "^10.12.2",
+    "firebase-admin": "^12.1.1",
+    "googleapis": "^140.0.1",
+    "next": "14.2.35",
+    "nodemailer": "^6.9.14",
+    "pdf-lib": "^1.17.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/nodemailer": "^6.4.15",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.19",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.35",
+    "postcss": "^8.4.39",
+    "tailwindcss": "^3.4.6",
+    "typescript": "^5.5.3"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}

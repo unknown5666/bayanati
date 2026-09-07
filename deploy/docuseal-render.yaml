@@ -1,0 +1,41 @@
+# Docuseal on Render — one-click Blueprint (free tier).
+#
+# HOW TO USE:
+#   1. Fork https://github.com/docuseal/docuseal
+#   2. Copy this file into the fork's root, renamed to `render.yaml`, and push.
+#   3. Render dashboard → New → Blueprint → pick your fork. Render reads render.yaml
+#      and provisions the web service + Postgres automatically.
+#   4. When it's live, open the URL, create the first admin (Saad / then add Abdullah),
+#      copy the API key from Settings → API into DOCUSEAL_API_KEY, and set the
+#      webhook (see DOCUSEAL_SETUP.md).
+#
+# FREE-TIER CAVEATS (fine for launch, revisit for production):
+#   • Free web services sleep when idle and have NO persistent disk — Docuseal's
+#     locally-stored files are ephemeral across restarts. Bayanati pulls each signed
+#     PDF into Google Drive immediately via the webhook, so completed contracts are
+#     safe; only in-flight, unsigned submissions could be lost on a restart. For full
+#     durability, upgrade to a paid plan with a disk, or configure S3/GCS storage.
+#   • Render's free Postgres is deleted after ~30 days. Upgrade the DB before real use.
+
+services:
+  - type: web
+    name: oep-docuseal
+    runtime: image
+    image:
+      url: docker.io/docuseal/docuseal:latest
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: oep-docuseal-db
+          property: connectionString
+      # Required by Docuseal (Rails) — Render generates a strong value once.
+      - key: SECRET_KEY_BASE
+        generateValue: true
+      - key: FORCE_SSL
+        value: "true"
+
+databases:
+  - name: oep-docuseal-db
+    plan: free

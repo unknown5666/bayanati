@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background: theme('colors.ink.950');
+  color: theme('colors.paper');
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* RTL: mirror padding/margins handled by Tailwind logical utilities where used;
+   this ensures native inputs and the document flow flip correctly. */
+[dir='rtl'] {
+  text-align: right;
+}
+
+@layer components {
+  .field-label {
+    @apply mb-1.5 block text-sm font-medium text-paper/80;
+  }
+
+  .field-input {
+    @apply w-full rounded-xl border border-ink-600 bg-ink-800 px-4 py-3 text-base
+      text-paper placeholder:text-ink-500 outline-none transition
+      focus:border-exposure focus:ring-2 focus:ring-exposure/30;
+  }
+
+  .field-input-error {
+    @apply border-red-500/70 focus:border-red-500 focus:ring-red-500/30;
+  }
+
+  .field-error {
+    @apply mt-1.5 text-sm text-red-400;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-exposure
+      px-5 py-3 text-base font-semibold text-ink-950 transition
+      hover:bg-exposure-soft active:scale-[0.99] disabled:cursor-not-allowed
+      disabled:opacity-50;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border
+      border-ink-600 bg-transparent px-5 py-3 text-base font-medium text-paper
+      transition hover:bg-ink-800 disabled:opacity-50;
+  }
+
+  .card {
+    @apply rounded-2xl border border-ink-700 bg-ink-900/80 shadow-xl
+      shadow-black/30;
+  }
+}

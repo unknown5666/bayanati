@@ -1,0 +1,34 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "crew": {
+      ".read": "auth != null && auth.token.admin === true",
+      ".indexOn": ["createdAt"],
+      "$crewId": {
+        ".read": "auth != null && auth.token.admin === true",
+        ".write": "(auth != null && auth.token.admin === true) || (!data.exists() && newData.child('contract/status').val() === 'submitted')",
+        ".validate": "newData.hasChildren(['id', 'personal', 'documents', 'contract'])"
+      }
+    },
+
+    "projects": {
+      ".read": "auth != null && auth.token.admin === true",
+      ".write": "auth != null && auth.token.admin === true"
+    },
+
+    "contracts": {
+      ".read": "auth != null && auth.token.admin === true",
+      ".write": "auth != null && auth.token.admin === true"
+    },
+
+    "audit": {
+      ".read": "auth != null && auth.token.admin === true"
+    },
+
+    "docusealIndex": {
+      ".read": "auth != null && auth.token.admin === true"
+    }
+  }
+}
