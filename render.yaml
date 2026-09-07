@@ -1,0 +1,49 @@
+# Docuseal on Render — one-click Blueprint.
+#
+# This deploys the OFFICIAL Docuseal Docker image directly (runtime: image), so
+# there is NOTHING to fork or build. Render pulls docuseal/docuseal and boots it.
+#
+# HOW TO USE:
+#   1. Render.com (sign in with GitHub) → New → Blueprint.
+#   2. Pick this repo (unknown5666/bayanati). Render reads THIS file and
+#      provisions the Docuseal web service + a Postgres database automatically.
+#   3. Click Apply. When it's live, open the service URL — that is your
+#      DOCUSEAL_BASE_URL (e.g. https://oep-docuseal.onrender.com).
+#   4. Create the first admin in the browser, then Settings → API → copy the
+#      token into DOCUSEAL_API_KEY, and add the webhook (see DOCUSEAL_SETUP.md).
+#
+# NOTE: This blueprint only defines Docuseal. The Bayanati Next.js app itself is
+# deployed separately (Hostinger), so the two never collide.
+#
+# FREE-TIER CAVEATS (fine for launch, revisit for production):
+#   • Free web services sleep when idle and have NO persistent disk — Docuseal's
+#     locally-stored files are ephemeral across restarts. Bayanati pulls each signed
+#     PDF into Google Drive immediately via the webhook, so completed contracts are
+#     safe; only in-flight, unsigned submissions could be lost on a restart. For full
+#     durability, upgrade to a paid plan with a disk, or configure S3/GCS storage.
+#   • Render's free Postgres is time-limited. Upgrade the DB before real production use.
+#   • If Render rejects `plan: free` for your account, change both `plan:` values
+#     below to `starter` and re-apply.
+
+services:
+  - type: web
+    name: oep-docuseal
+    runtime: image
+    image:
+      url: docker.io/docuseal/docuseal:latest
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: oep-docuseal-db
+          property: connectionString
+      # Required by Docuseal (Rails) — Render generates a strong value once.
+      - key: SECRET_KEY_BASE
+        generateValue: true
+      - key: FORCE_SSL
+        value: "true"
+
+databases:
+  - name: oep-docuseal-db
+    plan: free

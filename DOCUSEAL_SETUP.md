@@ -8,16 +8,21 @@ webhook when they finish.
 
 ## 1. Deploy Docuseal on Render (free)
 
-This repo ships a ready Blueprint at **`deploy/docuseal-render.yaml`**.
+This repo ships a ready Blueprint at its root: **`render.yaml`**. It deploys the
+**official Docuseal Docker image directly** — there is nothing to fork or build.
 
-1. Fork https://github.com/docuseal/docuseal.
-2. Copy `deploy/docuseal-render.yaml` from this project into the fork's root,
-   rename it to `render.yaml`, and push.
-3. Render.com → **New → Blueprint** → pick your fork. Render reads `render.yaml`
-   and provisions the web service **and** a free Postgres automatically
-   (`SECRET_KEY_BASE` is generated for you).
-4. Deploy. Your instance will be at something like
-   `https://oep-docuseal.onrender.com` → this is `DOCUSEAL_BASE_URL`.
+1. Go to [render.com](https://render.com) and **sign in with GitHub**.
+2. **New → Blueprint** → pick the **`unknown5666/bayanati`** repo. Render reads
+   `render.yaml` and provisions the Docuseal web service **and** a Postgres
+   database automatically (`SECRET_KEY_BASE` is generated for you).
+3. Click **Apply** and wait for the deploy to go green.
+4. Open the service URL (something like `https://oep-docuseal.onrender.com`) →
+   this is your **`DOCUSEAL_BASE_URL`**.
+
+> The blueprint only defines Docuseal. The Bayanati app itself is deployed
+> separately on Hostinger, so the two never collide. If Render rejects the
+> `free` plan for your account, change both `plan:` values in `render.yaml` to
+> `starter` and re-apply.
 
 > Free-tier caveats (fine for launch): free web services sleep when idle (first
 > request after sleep is slow) and have no persistent disk, so Docuseal's local
