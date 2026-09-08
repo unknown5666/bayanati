@@ -4,7 +4,14 @@ import { useState } from 'react';
 import { Modal } from './Modal';
 import { StatusBadge } from './StatusBadge';
 import type { CrewMember } from '@/lib/types';
-import { generateContracts, sendContracts, updateCrew, type ContractLinks } from '@/lib/api-client';
+import {
+  generateContracts,
+  sendContracts,
+  stampContracts,
+  updateCrew,
+  type ContractLang,
+  type ContractLinks,
+} from '@/lib/api-client';
 
 function maskIban(iban?: string): string {
   if (!iban) return '—';
@@ -32,7 +39,14 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
 
   const c = crew.contract;
   const [links, setLinks] = useState<ContractLinks>({ X: c.pdfLinkX, Y: c.pdfLinkY });
+  const [stampLinks, setStampLinks] = useState<ContractLinks>({
+    X: c.stampLinkX,
+    Y: c.stampLinkY,
+  });
+  const [lang, setLang] = useState<ContractLang>(c.language === 'ar' ? 'ar' : 'en');
   const name = `${crew.personal.firstName} ${crew.personal.lastName}`.trim();
+  const signedAny =
+    crew.signatures.contractX.signed || crew.signatures.contractY.signed;
   const ready =
     Boolean(c.role) &&
     c.amountX != null &&
@@ -62,10 +76,12 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
     }
   }
 
+  const langName = lang === 'ar' ? 'Arabic' : 'English';
+
   async function onGenerate() {
     const res = await run(
-      () => generateContracts(crew.id),
-      'Contracts generated — open them below to review. Nothing was sent.',
+      () => generateContracts(crew.id, lang),
+      `Contracts generated in ${langName} — open them below to review. Nothing was sent.`,
     );
     if (res?.links) setLinks(res.links);
   }
@@ -73,10 +89,23 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
   async function onSend() {
     const verb = alreadySent ? 'resent' : 'sent';
     const res = await run(
-      () => sendContracts(crew.id),
-      `Contracts generated and ${verb} to the crew member ✓`,
+      () => sendContracts(crew.id, lang),
+      `Contracts generated in ${langName} and ${verb} to the crew member ✓`,
     );
     if (res?.links) setLinks(res.links);
+  }
+
+  async function onStamp() {
+    const res = await run(
+      () => stampContracts([crew.id]),
+      'Company stamp applied to the signed contract(s) ✓',
+    );
+    const mine = res?.results?.find((r) => r.crewId === crew.id);
+    if (mine && !mine.ok) {
+      setMsg({ kind: 'err', text: mine.error ?? 'Stamping failed' });
+    } else if (mine?.links) {
+      setStampLinks(mine.links);
+    }
   }
 
   return (
@@ -172,7 +201,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
               target="_blank"
               rel="noreferrer"
             >
-              <span className="font-medium">📄 Contract X</span>
+              <span className="font-medium">📄 Contract A</span>
               <span className="text-paper/50">View ↗</span>
             </a>
           )}
@@ -183,12 +212,31 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
               target="_blank"
               rel="noreferrer"
             >
-              <span className="font-medium">📄 Contract Y</span>
+              <span className="font-medium">📄 Contract B</span>
               <span className="text-paper/50">View ↗</span>
             </a>
           )}
         </section>
       )}
+
+      {/* Contract language: name always stays in English, the rest follows this. */}
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-paper/60">Contract language</span>
+        <div className="flex overflow-hidden rounded-xl border border-ink-600">
+          {(['en', 'ar'] as ContractLang[]).map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setLang(l)}
+              className={`px-4 py-2 text-sm ${
+                lang === l ? 'bg-exposure text-ink-950' : 'text-paper/70 hover:bg-ink-800'
+              }`}
+            >
+              {l === 'en' ? 'English' : 'العربية'}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
         <button
@@ -212,6 +260,43 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
         <p className="-mt-1 text-center text-xs text-paper/50">
           Set role, both amounts, dates and IBAN to enable generating or sending.
         </p>
+      )}
+
+      {/* Company stamp — only meaningful once at least one contract is signed. */}
+      {signedAny && (
+        <button className="btn-ghost w-full" disabled={busy} onClick={onStamp}>
+          {busy ? 'Working…' : '🏷️ Apply company stamp to signed contract(s)'}
+        </button>
+      )}
+
+      {(stampLinks.X || stampLinks.Y) && (
+        <section className="rounded-xl border border-ink-800 divide-y divide-ink-800">
+          <p className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-paper/50">
+            Stamped contracts
+          </p>
+          {stampLinks.X && (
+            <a
+              className="flex items-center justify-between px-4 py-2.5 text-sm hover:bg-ink-800"
+              href={stampLinks.X}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="font-medium">🏷️ Contract A (stamped)</span>
+              <span className="text-paper/50">View ↗</span>
+            </a>
+          )}
+          {stampLinks.Y && (
+            <a
+              className="flex items-center justify-between px-4 py-2.5 text-sm hover:bg-ink-800"
+              href={stampLinks.Y}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="font-medium">🏷️ Contract B (stamped)</span>
+              <span className="text-paper/50">View ↗</span>
+            </a>
+          )}
+        </section>
       )}
 
       {/* Modals */}

@@ -45,7 +45,7 @@ async function drawBrandLogo(
   centerX: number,
   topY: number,
 ): Promise<number> {
-  const B = 38; // badge size in points
+  const B = 46; // badge size in points
   try {
     const bytes = await readFile(path.join(process.cwd(), 'public', 'oep-logo.png'));
     const img = await pdf.embedPng(bytes);
@@ -222,7 +222,7 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
     const width = font.widthOfTextAtSize(shaped, size);
     const x = rtl ? A4.w - MARGIN - width : MARGIN;
     cur.page.drawText(shaped, { x, y: cur.y, size, font, color });
-    cur.y -= size * 1.3;
+    cur.y -= size * 1.55;
   };
 
   const drawCentered = (
@@ -234,7 +234,7 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
     const shaped = shape(text);
     const width = font.widthOfTextAtSize(shaped, size);
     cur.page.drawText(shaped, { x: (A4.w - width) / 2, y: cur.y, size, font, color });
-    cur.y -= size * 1.3;
+    cur.y -= size * 1.55;
   };
 
   // Single-page contract: never spill onto a second page. Kept as a no-op so
@@ -268,32 +268,32 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
       ensureSpace(size * 1.6);
       drawLine(line, font, size, color);
     }
-    cur.y -= size * 0.35;
+    cur.y -= size * 0.7;
   };
 
   // Header: thin brand strip, the OEP logo centred on top, wordmark, then title.
   cur.page.drawRectangle({ x: 0, y: A4.h - 6, width: A4.w, height: 6, color: AMBER });
 
-  const logoBottom = await drawBrandLogo(pdf, cur.page, A4.w / 2, A4.h - 18);
-  cur.y = logoBottom - 12;
+  const logoBottom = await drawBrandLogo(pdf, cur.page, A4.w / 2, A4.h - 20);
+  cur.y = logoBottom - 16;
 
   const brand = rtl ? 'أوفر إكسبوجر برودكشنز' : 'OVER EXPOSURE PRODUCTIONS';
-  drawCentered(brand, bold, 9, GREY);
-  cur.y -= 4;
-
-  // Title — centred, and just the contract name (no "(X)"/"(Y)" suffix).
-  drawCentered(tpl.title, bold, 15);
+  drawCentered(brand, bold, 9.5, GREY);
   cur.y -= 8;
 
-  // Intro + sections — compact so the whole contract stays on ONE page.
-  paragraph(fillPlaceholders(tpl.intro, placeholders), regular, 9);
-  cur.y -= 3;
+  // Title — centred, and just the contract name (no "(X)"/"(Y)" suffix).
+  drawCentered(tpl.title, bold, 17);
+  cur.y -= 14;
+
+  // Intro + sections — spaced to fill the page while staying on ONE page.
+  paragraph(fillPlaceholders(tpl.intro, placeholders), regular, 10.5);
+  cur.y -= 8;
 
   for (const section of tpl.sections) {
     ensureSpace(40);
-    drawLine(section.heading, bold, 9.5);
-    cur.y -= 1;
-    paragraph(fillPlaceholders(section.body, placeholders), regular, 9);
+    drawLine(section.heading, bold, 11);
+    cur.y -= 3;
+    paragraph(fillPlaceholders(section.body, placeholders), regular, 10.5);
   }
 
   // Signature block at a FIXED position near the bottom of the single page.

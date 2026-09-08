@@ -31,18 +31,35 @@ export interface ContractLinks {
   Y?: string;
 }
 
+export type ContractLang = 'en' | 'ar';
+
 /** Build the contract PDFs and return Drive view links WITHOUT sending. */
-export function generateContracts(crewId: string) {
+export function generateContracts(crewId: string, lang?: ContractLang) {
   return post<{ ok: true; mode: 'generate'; links: ContractLinks }>(
     '/api/contracts/generate',
-    { crewId, mode: 'generate' },
+    { crewId, mode: 'generate', ...(lang ? { lang } : {}) },
   );
 }
 
 /** Build the PDFs, create the Docuseal signing requests, and email the crew. */
-export function sendContracts(crewId: string) {
+export function sendContracts(crewId: string, lang?: ContractLang) {
   return post<{ ok: true; mode: 'send'; links: ContractLinks }>(
     '/api/contracts/generate',
-    { crewId, mode: 'send' },
+    { crewId, mode: 'send', ...(lang ? { lang } : {}) },
   );
+}
+
+export interface StampResult {
+  crewId: string;
+  ok: boolean;
+  stamped?: number;
+  links?: ContractLinks;
+  error?: string;
+}
+
+/** Apply the company stamp to the SIGNED contracts of one or more crew. */
+export function stampContracts(crewIds: string[]) {
+  return post<{ ok: boolean; results: StampResult[] }>('/api/contracts/stamp', {
+    crewIds,
+  });
 }

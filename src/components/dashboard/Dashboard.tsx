@@ -8,6 +8,7 @@ import type { ContractStatus, CrewMember } from '@/lib/types';
 import { StatusBadge, statusLabel } from './StatusBadge';
 import { Modal } from './Modal';
 import { CrewDetails } from './CrewDetails';
+import { stampContracts } from '@/lib/api-client';
 
 const STATUSES: ContractStatus[] = [
   'submitted',
@@ -29,6 +30,38 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
   const [status, setStatus] = useState<ContractStatus | 'all'>('all');
   const [view, setView] = useState<'cards' | 'table'>('cards');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+
+  const toggleSelect = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const clearSelection = () => setSelectedIds(new Set());
+
+  async function onBulkStamp() {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    setBulkBusy(true);
+    setBulkMsg(null);
+    try {
+      const res = await stampContracts(ids);
+      const ok = res.results.filter((r) => r.ok).length;
+      const skipped = res.results.length - ok;
+      let text = `Company stamp applied to ${ok} of ${ids.length} selected.`;
+      if (skipped > 0) text += ` ${skipped} skipped (no signed contract yet, or an error).`;
+      setBulkMsg(text);
+      clearSelection();
+    } catch (err) {
+      setBulkMsg(err instanceof Error ? err.message : 'Bulk stamp failed');
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   const stats = useMemo(() => {
     const monthStart = startOfMonth();
@@ -111,6 +144,31 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
         </div>
       </section>
 
+      {selectedIds.size > 0 && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-exposure/40 bg-ink-900 px-4 py-3">
+          <span className="text-sm font-medium">{selectedIds.size} selected</span>
+          <div className="flex gap-2">
+            <button className="btn-ghost px-3 py-2" onClick={clearSelection} disabled={bulkBusy}>
+              Clear
+            </button>
+            <button
+              className="btn-primary px-3 py-2"
+              onClick={onBulkStamp}
+              disabled={bulkBusy}
+              title="Apply the company stamp to every selected crew member whose contract is signed"
+            >
+              {bulkBusy ? 'Stamping…' : '🏷️ Apply stamp to signed'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {bulkMsg && (
+        <p className="mb-4 rounded-lg bg-green-500/10 px-4 py-2.5 text-sm text-green-300">
+          {bulkMsg}
+        </p>
+      )}
+
       {error && (
         <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
           Could not load crew: {error}. Check your Realtime DB rules allow admin reads.
@@ -124,11 +182,22 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
       ) : view === 'cards' ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((c) => (
-            <CrewCard key={c.id} crew={c} onOpen={() => setSelectedId(c.id)} />
+            <CrewCard
+              key={c.id}
+              crew={c}
+              onOpen={() => setSelectedId(c.id)}
+              selected={selectedIds.has(c.id)}
+              onToggle={() => toggleSelect(c.id)}
+            />
           ))}
         </div>
       ) : (
-        <CrewTable crew={filtered} onOpen={setSelectedId} />
+        <CrewTable
+          crew={filtered}
+          onOpen={setSelectedId}
+          selectedIds={selectedIds}
+          onToggle={toggleSelect}
+        />
       )}
 
       <Modal
@@ -151,36 +220,66 @@ function Stat({ label, value, accent }: { label: string; value: number; accent?:
   );
 }
 
-function CrewCard({ crew, onOpen }: { crew: CrewMember; onOpen: () => void }) {
+function CrewCard({
+  crew,
+  onOpen,
+  selected,
+  onToggle,
+}: {
+  crew: CrewMember;
+  onOpen: () => void;
+  selected: boolean;
+  onToggle: () => void;
+}) {
   const name = `${crew.personal.firstName} ${crew.personal.lastName}`.trim();
   return (
-    <button onClick={onOpen} className="card p-4 text-left transition hover:border-exposure/50">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="font-semibold">{name}</p>
-          <p className="text-sm text-paper/60">{crew.personal.email}</p>
+    <div className="relative">
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={onToggle}
+        onClick={(e) => e.stopPropagation()}
+        aria-label={`Select ${name}`}
+        className="absolute left-3 top-3 z-10 h-4 w-4 cursor-pointer accent-exposure"
+      />
+      <button
+        onClick={onOpen}
+        className={`card w-full p-4 pl-10 text-left transition hover:border-exposure/50 ${
+          selected ? 'border-exposure/60' : ''
+        }`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="font-semibold">{name}</p>
+            <p className="text-sm text-paper/60">{crew.personal.email}</p>
+          </div>
+          <StatusBadge status={crew.contract.status} />
         </div>
-        <StatusBadge status={crew.contract.status} />
-      </div>
-      <div className="mt-3 flex items-center gap-3 text-xs text-paper/50">
-        <span>{crew.contract.role ?? 'No role yet'}</span>
-      </div>
-    </button>
+        <div className="mt-3 flex items-center gap-3 text-xs text-paper/50">
+          <span>{crew.contract.role ?? 'No role yet'}</span>
+        </div>
+      </button>
+    </div>
   );
 }
 
 function CrewTable({
   crew,
   onOpen,
+  selectedIds,
+  onToggle,
 }: {
   crew: CrewMember[];
   onOpen: (id: string) => void;
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-ink-800">
       <table className="w-full min-w-[640px] text-left text-sm">
         <thead className="bg-ink-900 text-paper/60">
           <tr>
+            <th className="px-4 py-3" />
             <th className="px-4 py-3 font-medium">Name</th>
             <th className="px-4 py-3 font-medium">Email</th>
             <th className="px-4 py-3 font-medium">Role</th>
@@ -191,6 +290,15 @@ function CrewTable({
         <tbody className="divide-y divide-ink-800">
           {crew.map((c) => (
             <tr key={c.id} className="hover:bg-ink-900/60">
+              <td className="px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(c.id)}
+                  onChange={() => onToggle(c.id)}
+                  aria-label={`Select ${c.personal.firstName} ${c.personal.lastName}`}
+                  className="h-4 w-4 cursor-pointer accent-exposure"
+                />
+              </td>
               <td className="px-4 py-3 font-medium">
                 {c.personal.firstName} {c.personal.lastName}
               </td>

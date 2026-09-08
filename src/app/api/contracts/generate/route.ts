@@ -29,6 +29,9 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const crewId: string | undefined = body?.crewId;
   const mode: 'generate' | 'send' = body?.mode === 'generate' ? 'generate' : 'send';
+  // Optional admin override of the contract language (name always stays Latin).
+  const langOverride: 'en' | 'ar' | undefined =
+    body?.lang === 'ar' ? 'ar' : body?.lang === 'en' ? 'en' : undefined;
   if (!crewId) return NextResponse.json({ error: 'crewId required' }, { status: 400 });
 
   const crew = await getCrew(crewId);
@@ -52,7 +55,7 @@ export async function POST(req: Request) {
 
   const projectName = await getProjectName(crew.projectId);
   const crewName = `${crew.personal.firstName} ${crew.personal.lastName}`.trim();
-  const lang = c.language;
+  const lang = langOverride ?? c.language;
 
   try {
     // Build both PDFs and store them in Drive under Pending. This happens in
@@ -80,6 +83,7 @@ export async function POST(req: Request) {
     // record that has already been sent/signed.
     if (mode === 'generate') {
       await updateContract(crewId, {
+        language: lang,
         pdfLinkX: pdfLinks.X!,
         pdfLinkY: pdfLinks.Y!,
         generatedAt: Date.now(),
@@ -135,6 +139,7 @@ export async function POST(req: Request) {
     // Persist status + PDF links + Docuseal references.
     await updateContract(crewId, {
       status: 'sent',
+      language: lang,
       sentAt: Date.now(),
       generatedAt: Date.now(),
       pdfLinkX: pdfLinks.X!,

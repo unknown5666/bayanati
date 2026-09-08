@@ -51,6 +51,10 @@ export interface ContractDetails {
   docusealSubmissionY?: string;
   signUrlX?: string;
   signUrlY?: string;
+  // Stamped (company seal applied) signed PDFs, filled by /api/contracts/stamp.
+  stampLinkX?: string;
+  stampLinkY?: string;
+  stampedAt?: number;
 }
 
 export interface SignatureRecord {
