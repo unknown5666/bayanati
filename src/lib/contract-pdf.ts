@@ -1,16 +1,13 @@
 import 'server-only';
 
-// Contract PDF generation with pdf-lib.
+// Bilingual contract PDF generation with pdf-lib — English (left column) and
+// Arabic (right column) split by a vertical divider, on a single A4 page.
 //
-// English renders natively with a standard font. Arabic requires an embedded
-// Unicode font AND contextual shaping (pdf-lib does not shape Arabic on its own),
-// so we embed a Noto Arabic font from src/assets/fonts and reshape text with the
-// optional `arabic-reshaper` dependency. If the font is missing the generator
-// throws a clear, actionable error rather than producing broken glyphs.
-//
-// For pixel-perfect Arabic legal fidelity, prefer uploading the original Arabic
-// PDF straight to Docuseal as a template (see DOCUSEAL_SETUP.md) instead of
-// re-typesetting it here.
+// English uses a standard font. Arabic uses the embedded Amiri font (covers
+// Arabic + Latin) and contextual shaping via `arabic-reshaper` (pdf-lib does no
+// bidi), with a run-based visual reorder. This is good for a working bilingual
+// doc; embedded Latin identifiers in the Arabic column can still order
+// imperfectly — for pixel-exact legal Arabic, use a Docuseal Arabic template.
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -21,7 +18,7 @@ import {
   type PDFFont,
   type PDFPage,
 } from 'pdf-lib';
-import type { ContractPlaceholders, ContractType, CrewMember, Language } from './types';
+import type { ContractPlaceholders, ContractType, CrewMember } from './types';
 import { CONTRACT_TEMPLATES } from './contract-templates';
 
 const AMBER = rgb(0.91, 0.69, 0.29);
@@ -149,6 +146,15 @@ async function getReshaper(): Promise<((s: string) => string) | null> {
   return reshaper ?? null;
 }
 
+const NBSP = String.fromCharCode(160);
+
+/**
+ * Keep Latin/number words from breaking across lines in the RTL column (where a
+ * split run reverses into gibberish) by joining intra-Latin spaces with NBSP.
+ */
+const protectLatinRuns = (s: string): string =>
+  s.replace(/([A-Za-z0-9])[ ]+(?=[A-Za-z0-9])/g, `$1${NBSP}`);
+
 const isArabicChar = (ch: string): boolean => {
   const c = ch.codePointAt(0) ?? 0;
   return (
@@ -207,159 +213,207 @@ async function embedArabicFont(pdf: PDFDocument): Promise<PDFFont> {
 // --- Layout ----------------------------------------------------------------
 
 const A4 = { w: 595.28, h: 841.89 };
-const MARGIN = 56;
-
-interface Cursor {
-  page: PDFPage;
-  y: number;
-}
+const MARGIN = 42;
+const GUTTER = 18; // gap between the two language columns
+const DIVIDER = rgb(0.8, 0.8, 0.82);
 
 export interface GenerateOptions {
-  lang: Language;
-  type: ContractType;
+  // `type` only affects which AMOUNT the placeholders already carry; the PDF
+  // itself is always bilingual (English | Arabic), so no language is passed.
   placeholders: ContractPlaceholders;
 }
 
+/**
+ * Render ONE bilingual contract page: English in the left column, Arabic in the
+ * right column, split by a vertical divider, with signature blocks in both
+ * languages. The company stamp is added to the SIGNED copy separately.
+ */
 export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8Array> {
-  const { lang, type, placeholders } = opts;
-  const rtl = lang === 'ar';
-  const tpl = CONTRACT_TEMPLATES[lang];
+  const { placeholders } = opts;
+  const en = CONTRACT_TEMPLATES.en;
+  const ar = CONTRACT_TEMPLATES.ar;
 
   const pdf = await PDFDocument.create();
-  const regular = rtl
-    ? await embedArabicFont(pdf)
-    : await pdf.embedFont(StandardFonts.Helvetica);
-  const bold = rtl ? regular : await pdf.embedFont(StandardFonts.HelveticaBold);
+  const latin = await pdf.embedFont(StandardFonts.Helvetica);
+  const latinBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const arabic = await embedArabicFont(pdf);
 
-  const reshape = rtl ? await getReshaper() : null;
-  if (rtl && !reshape) {
+  const reshape = await getReshaper();
+  if (!reshape) {
     throw new Error(
-      'Arabic contracts require the optional "arabic-reshaper" package. ' +
-        'Run: npm install arabic-reshaper — or use a Docuseal Arabic template.',
+      'Arabic contracts require the "arabic-reshaper" package. Run: npm install arabic-reshaper.',
     );
   }
+  const shapeAr = (s: string): string => shapeArabicLine(s, reshape);
 
-  const shape = (s: string): string =>
-    rtl && reshape ? shapeArabicLine(s, reshape) : s;
+  const page = pdf.addPage([A4.w, A4.h]);
+  const centerX = A4.w / 2;
+  const leftX0 = MARGIN;
+  const leftX1 = centerX - GUTTER / 2;
+  const rightX0 = centerX + GUTTER / 2;
+  const rightX1 = A4.w - MARGIN;
 
-  let cur: Cursor = { page: pdf.addPage([A4.w, A4.h]), y: A4.h - MARGIN };
+  // ---- Shared header ----
+  page.drawRectangle({ x: 0, y: A4.h - 6, width: A4.w, height: 6, color: AMBER });
+  const logoBottom = await drawBrandLogo(pdf, page, centerX, A4.h - 16);
+  let headY = logoBottom - 14;
 
-  const drawLine = (
-    text: string,
+  const wm = 'OVER EXPOSURE PRODUCTIONS';
+  page.drawText(wm, {
+    x: centerX - latinBold.widthOfTextAtSize(wm, 9) / 2,
+    y: headY,
+    size: 9,
+    font: latinBold,
+    color: GREY,
+  });
+  headY -= 18;
+
+  // Bilingual titles side by side.
+  page.drawText(en.title, {
+    x: (leftX0 + leftX1) / 2 - latinBold.widthOfTextAtSize(en.title, 12.5) / 2,
+    y: headY,
+    size: 12.5,
+    font: latinBold,
+  });
+  const arTitle = shapeAr(ar.title);
+  page.drawText(arTitle, {
+    x: (rightX0 + rightX1) / 2 - arabic.widthOfTextAtSize(arTitle, 12.5) / 2,
+    y: headY,
+    size: 12.5,
+    font: arabic,
+  });
+  const bodyTop = headY - 20;
+  const sigTop = MARGIN + 82; // reserve a bottom band for signatures + stamp
+
+  // ---- One language column ----
+  const BODY = 8;
+  const HEAD = 9;
+  const LH = 1.32;
+
+  const renderColumn = (
+    tpl: (typeof CONTRACT_TEMPLATES)['en'],
+    x0: number,
+    x1: number,
+    rtl: boolean,
     font: PDFFont,
-    size: number,
-    color = INK,
-  ) => {
-    const shaped = shape(text);
-    const width = font.widthOfTextAtSize(shaped, size);
-    const x = rtl ? A4.w - MARGIN - width : MARGIN;
-    cur.page.drawText(shaped, { x, y: cur.y, size, font, color });
-    cur.y -= size * 1.55;
-  };
+    bold: PDFFont,
+  ): number => {
+    const colW = x1 - x0;
+    let y = bodyTop;
 
-  const drawCentered = (
-    text: string,
-    font: PDFFont,
-    size: number,
-    color = INK,
-  ) => {
-    const shaped = shape(text);
-    const width = font.widthOfTextAtSize(shaped, size);
-    cur.page.drawText(shaped, { x: (A4.w - width) / 2, y: cur.y, size, font, color });
-    cur.y -= size * 1.55;
-  };
-
-  // Single-page contract: never spill onto a second page. Kept as a no-op so
-  // the call sites still read as intent markers.
-  const ensureSpace = (_needed: number) => {
-    void _needed;
-  };
-
-  const wrap = (text: string, font: PDFFont, size: number): string[] => {
-    const maxWidth = A4.w - MARGIN * 2;
-    const words = text.split(/\s+/);
-    const lines: string[] = [];
-    let line = '';
-    for (const word of words) {
-      const trial = line ? `${line} ${word}` : word;
-      // Measure the shaped width so Arabic wrapping is roughly correct.
-      const measured = shape(trial);
-      if (font.widthOfTextAtSize(measured, size) > maxWidth && line) {
-        lines.push(line);
-        line = word;
-      } else {
-        line = trial;
+    const wrapCol = (text: string, size: number, f: PDFFont): string[] => {
+      // Split on plain spaces only (NBSP is preserved so protected Latin runs
+      // stay on one line). \s would eat NBSP, so it must not be used here.
+      const words = (rtl ? protectLatinRuns(text) : text).split(/[ \t]+/);
+      const lines: string[] = [];
+      let line = '';
+      for (const word of words) {
+        const trial = line ? `${line} ${word}` : word;
+        const measured = rtl ? shapeAr(trial) : trial;
+        if (f.widthOfTextAtSize(measured, size) > colW && line) {
+          lines.push(line);
+          line = word;
+        } else {
+          line = trial;
+        }
       }
+      if (line) lines.push(line);
+      return lines;
+    };
+
+    const drawColLine = (text: string, size: number, f: PDFFont, color = INK) => {
+      const shaped = rtl ? shapeAr(text) : text;
+      const w = f.widthOfTextAtSize(shaped, size);
+      page.drawText(shaped, { x: rtl ? x1 - w : x0, y, size, font: f, color });
+      y -= size * LH;
+    };
+
+    const para = (text: string, size: number, f: PDFFont) => {
+      for (const l of wrapCol(text, size, f)) drawColLine(l, size, f);
+      y -= size * 0.55;
+    };
+
+    para(fillPlaceholders(tpl.intro, placeholders), BODY, font);
+    y -= 3;
+    for (const section of tpl.sections) {
+      drawColLine(section.heading, HEAD, bold);
+      y -= 1;
+      para(fillPlaceholders(section.body, placeholders), BODY, font);
     }
-    if (line) lines.push(line);
-    return lines;
+    return y;
   };
 
-  const paragraph = (text: string, font: PDFFont, size: number, color = INK) => {
-    for (const line of wrap(text, font, size)) {
-      ensureSpace(size * 1.6);
-      drawLine(line, font, size, color);
-    }
-    cur.y -= size * 0.7;
-  };
+  renderColumn(en, leftX0, leftX1, false, latin, latinBold);
+  renderColumn(ar, rightX0, rightX1, true, arabic, arabic);
 
-  // Header: thin brand strip, the OEP logo centred on top, wordmark, then title.
-  cur.page.drawRectangle({ x: 0, y: A4.h - 6, width: A4.w, height: 6, color: AMBER });
+  // ---- Divider between the two languages ----
+  page.drawLine({
+    start: { x: centerX, y: bodyTop + 8 },
+    end: { x: centerX, y: sigTop - 6 },
+    thickness: 0.75,
+    color: DIVIDER,
+  });
 
-  const logoBottom = await drawBrandLogo(pdf, cur.page, A4.w / 2, A4.h - 20);
-  cur.y = logoBottom - 16;
+  // ---- Signature band (bilingual) ----
+  // First Party (company, stamp goes here on the signed copy) on the left;
+  // Second Party (crew) signature on the right — matching the Docuseal field.
+  const bandY = sigTop;
 
-  const brand = rtl ? 'أوفر إكسبوجر برودكشنز' : 'OVER EXPOSURE PRODUCTIONS';
-  drawCentered(brand, bold, 9.5, GREY);
-  cur.y -= 8;
+  // Left: First Party / الطرف الأول
+  page.drawText('First Party — Over Exposure Productions', {
+    x: leftX0,
+    y: bandY,
+    size: 8,
+    font: latinBold,
+    color: GREY,
+  });
+  const fpAr = shapeAr('الطرف الأول — أوفر إكسبوجر برودكشنز');
+  page.drawText(fpAr, {
+    x: leftX1 - arabic.widthOfTextAtSize(fpAr, 8),
+    y: bandY - 12,
+    size: 8,
+    font: arabic,
+    color: GREY,
+  });
 
-  // Title — centred, and just the contract name (no "(X)"/"(Y)" suffix).
-  drawCentered(tpl.title, bold, 17);
-  cur.y -= 14;
-
-  // Intro + sections — spaced to fill the page while staying on ONE page.
-  paragraph(fillPlaceholders(tpl.intro, placeholders), regular, 10.5);
-  cur.y -= 8;
-
-  for (const section of tpl.sections) {
-    ensureSpace(40);
-    drawLine(section.heading, bold, 11);
-    cur.y -= 3;
-    paragraph(fillPlaceholders(section.body, placeholders), regular, 10.5);
-  }
-
-  // Signature block at a FIXED position near the bottom of the single page.
-  const lineY = MARGIN + 64;
-  const sigX = rtl ? MARGIN : A4.w - MARGIN - 220;
-
-  cur.page.drawLine({
-    start: { x: sigX, y: lineY },
-    end: { x: sigX + 220, y: lineY },
+  // Right: crew signature line + bilingual label + date.
+  const sigLineX0 = rightX1 - 200;
+  page.drawLine({
+    start: { x: sigLineX0, y: bandY + 2 },
+    end: { x: rightX1, y: bandY + 2 },
     thickness: 1,
     color: GREY,
   });
-  const sigLabel = shape(tpl.signatureLabel);
-  cur.page.drawText(sigLabel, {
-    x: sigX,
-    y: lineY - 14,
-    size: 9,
-    font: regular,
+  page.drawText(en.signatureLabel, {
+    x: sigLineX0,
+    y: bandY - 12,
+    size: 8,
+    font: latin,
     color: GREY,
   });
-  cur.page.drawText(shape(`${tpl.dateLabel}: ${placeholders.TODAY}`), {
-    x: sigX,
-    y: lineY - 30,
-    size: 9,
-    font: regular,
+  const sigAr = shapeAr(ar.signatureLabel);
+  page.drawText(sigAr, {
+    x: rightX1 - arabic.widthOfTextAtSize(sigAr, 8),
+    y: bandY - 24,
+    size: 8,
+    font: arabic,
+    color: GREY,
+  });
+  page.drawText(`${en.dateLabel} / ${placeholders.TODAY}`, {
+    x: sigLineX0,
+    y: bandY - 26,
+    size: 8,
+    font: latin,
     color: GREY,
   });
 
-  // Footer note (no "Contract X" label — the two copies differ by amount).
-  cur.page.drawText(`${placeholders.CREW_NAME} · ${placeholders.PROJECT_NAME}`, {
-    x: MARGIN,
-    y: MARGIN - 20,
-    size: 8,
-    font: bold,
+  // Footer note.
+  const footer = `${placeholders.CREW_NAME} · ${placeholders.PROJECT_NAME}`;
+  page.drawText(footer, {
+    x: centerX - latinBold.widthOfTextAtSize(footer, 7.5) / 2,
+    y: MARGIN - 22,
+    size: 7.5,
+    font: latinBold,
     color: GREY,
   });
 

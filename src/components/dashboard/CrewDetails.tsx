@@ -9,9 +9,15 @@ import {
   sendContracts,
   stampContracts,
   updateCrew,
-  type ContractLang,
+  type ContractType,
   type ContractLinks,
 } from '@/lib/api-client';
+
+const SCOPES: { key: string; label: string; types: ContractType[] }[] = [
+  { key: 'A', label: 'Contract A', types: ['X'] },
+  { key: 'B', label: 'Contract B', types: ['Y'] },
+  { key: 'both', label: 'Both', types: ['X', 'Y'] },
+];
 
 function maskIban(iban?: string): string {
   if (!iban) return '—';
@@ -43,17 +49,20 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
     X: c.stampLinkX,
     Y: c.stampLinkY,
   });
-  const [lang, setLang] = useState<ContractLang>(c.language === 'ar' ? 'ar' : 'en');
+  const [scopeKey, setScopeKey] = useState('both');
+  const scope = SCOPES.find((s) => s.key === scopeKey) ?? SCOPES[2];
   const name = `${crew.personal.firstName} ${crew.personal.lastName}`.trim();
   const signedAny =
     crew.signatures.contractX.signed || crew.signatures.contractY.signed;
+
+  // Ready = shared fields present, plus the amount for each selected contract.
   const ready =
     Boolean(c.role) &&
-    c.amountX != null &&
-    c.amountY != null &&
     Boolean(c.dateFrom) &&
     Boolean(c.dateTo) &&
-    Boolean(c.iban);
+    Boolean(c.iban) &&
+    (!scope.types.includes('X') || c.amountX != null) &&
+    (!scope.types.includes('Y') || c.amountY != null);
   const alreadySent =
     c.status === 'sent' ||
     c.status === 'signed_x' ||
@@ -76,23 +85,20 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
     }
   }
 
-  const langName = lang === 'ar' ? 'Arabic' : 'English';
-
   async function onGenerate() {
     const res = await run(
-      () => generateContracts(crew.id, lang),
-      `Contracts generated in ${langName} — open them below to review. Nothing was sent.`,
+      () => generateContracts(crew.id, scope.types),
+      `Generated ${scope.label} — open below to review. Nothing was sent.`,
     );
-    if (res?.links) setLinks(res.links);
+    if (res?.links) setLinks((prev) => ({ ...prev, ...res.links }));
   }
 
   async function onSend() {
-    const verb = alreadySent ? 'resent' : 'sent';
     const res = await run(
-      () => sendContracts(crew.id, lang),
-      `Contracts generated in ${langName} and ${verb} to the crew member ✓`,
+      () => sendContracts(crew.id, scope.types),
+      `${scope.label} ${alreadySent ? 're-sent' : 'sent'} to the crew member (separate email each) ✓`,
     );
-    if (res?.links) setLinks(res.links);
+    if (res?.links) setLinks((prev) => ({ ...prev, ...res.links }));
   }
 
   async function onStamp() {
@@ -125,29 +131,40 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
         <Row label="Emirates ID" value={crew.documents.emiratesId} dir="ltr" />
         <Row label="Passport" value={crew.documents.passport} dir="ltr" />
         <Row label="IBAN" value={maskIban(c.iban)} dir="ltr" />
-        <Row label="Language" value={c.language === 'ar' ? 'العربية' : 'English'} />
       </section>
 
       <section className="rounded-xl border border-ink-800 divide-y divide-ink-800">
         <Row label="Role" value={c.role} />
         <Row
-          label="Amount X"
+          label="Amount A"
           value={c.amountX != null ? `${c.amountX.toLocaleString()} AED` : undefined}
           dir="ltr"
         />
         <Row
-          label="Amount Y"
+          label="Amount B"
           value={c.amountY != null ? `${c.amountY.toLocaleString()} AED` : undefined}
           dir="ltr"
         />
         <Row label="Period" value={c.dateFrom && c.dateTo ? `${c.dateFrom} → ${c.dateTo}` : undefined} dir="ltr" />
         <Row
-          label="Contract X"
-          value={crew.signatures.contractX.signed ? '✓ Signed' : c.status === 'sent' || c.status === 'signed_y' ? 'Awaiting signature' : 'Not sent'}
+          label="Contract A"
+          value={
+            crew.signatures.contractX.signed
+              ? '✓ Signed'
+              : c.signUrlX
+                ? 'Sent · awaiting signature'
+                : 'Not sent'
+          }
         />
         <Row
-          label="Contract Y"
-          value={crew.signatures.contractY.signed ? '✓ Signed' : c.status === 'sent' || c.status === 'signed_x' ? 'Awaiting signature' : 'Not sent'}
+          label="Contract B"
+          value={
+            crew.signatures.contractY.signed
+              ? '✓ Signed'
+              : c.signUrlY
+                ? 'Sent · awaiting signature'
+                : 'Not sent'
+          }
         />
       </section>
 
@@ -219,20 +236,20 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
         </section>
       )}
 
-      {/* Contract language: name always stays in English, the rest follows this. */}
+      {/* Which contract(s) to act on. Every PDF is bilingual (EN | AR). */}
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm text-paper/60">Contract language</span>
+        <span className="text-sm text-paper/60">Apply to</span>
         <div className="flex overflow-hidden rounded-xl border border-ink-600">
-          {(['en', 'ar'] as ContractLang[]).map((l) => (
+          {SCOPES.map((s) => (
             <button
-              key={l}
+              key={s.key}
               type="button"
-              onClick={() => setLang(l)}
+              onClick={() => setScopeKey(s.key)}
               className={`px-4 py-2 text-sm ${
-                lang === l ? 'bg-exposure text-ink-950' : 'text-paper/70 hover:bg-ink-800'
+                scopeKey === s.key ? 'bg-exposure text-ink-950' : 'text-paper/70 hover:bg-ink-800'
               }`}
             >
-              {l === 'en' ? 'English' : 'العربية'}
+              {s.key === 'both' ? 'Both' : s.key}
             </button>
           ))}
         </div>
@@ -243,22 +260,24 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
           className="btn-ghost w-full"
           disabled={busy || !ready}
           onClick={onGenerate}
-          title={ready ? 'Build the PDFs and view them — nothing is sent' : 'Set role, both amounts, dates and IBAN first'}
+          title={ready ? 'Build the PDF(s) and view them — nothing is sent' : 'Set role, amount(s), dates and IBAN first'}
         >
-          {busy ? 'Working…' : '📄 Generate & View'}
+          {busy ? 'Working…' : `📄 Generate & View (${scope.key === 'both' ? 'A+B' : scope.key})`}
         </button>
         <button
           className="btn-primary w-full"
           disabled={busy || !ready}
           onClick={onSend}
-          title={ready ? 'Generate, create signing requests and email the crew member' : 'Set role, both amounts, dates and IBAN first'}
+          title={ready ? 'Generate, create signing request(s) and email — one email per contract' : 'Set role, amount(s), dates and IBAN first'}
         >
-          {busy ? 'Working…' : alreadySent ? '🔄 Generate & Resend' : '✉️ Generate & Send'}
+          {busy
+            ? 'Working…'
+            : `${alreadySent ? '🔄 Resend' : '✉️ Send'} ${scope.key === 'both' ? 'A+B' : scope.key}`}
         </button>
       </div>
       {!ready && (
         <p className="-mt-1 text-center text-xs text-paper/50">
-          Set role, both amounts, dates and IBAN to enable generating or sending.
+          Set role, the selected amount(s), dates and IBAN to enable generating or sending.
         </p>
       )}
 

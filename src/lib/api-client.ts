@@ -31,21 +31,21 @@ export interface ContractLinks {
   Y?: string;
 }
 
-export type ContractLang = 'en' | 'ar';
+export type ContractType = 'X' | 'Y';
 
-/** Build the contract PDFs and return Drive view links WITHOUT sending. */
-export function generateContracts(crewId: string, lang?: ContractLang) {
-  return post<{ ok: true; mode: 'generate'; links: ContractLinks }>(
+/** Build the selected bilingual PDFs and return Drive view links WITHOUT sending. */
+export function generateContracts(crewId: string, types: ContractType[] = ['X', 'Y']) {
+  return post<{ ok: true; mode: 'generate'; types: ContractType[]; links: ContractLinks }>(
     '/api/contracts/generate',
-    { crewId, mode: 'generate', ...(lang ? { lang } : {}) },
+    { crewId, mode: 'generate', types },
   );
 }
 
-/** Build the PDFs, create the Docuseal signing requests, and email the crew. */
-export function sendContracts(crewId: string, lang?: ContractLang) {
-  return post<{ ok: true; mode: 'send'; links: ContractLinks }>(
+/** Build the selected PDFs, create Docuseal requests, and email EACH separately. */
+export function sendContracts(crewId: string, types: ContractType[] = ['X', 'Y']) {
+  return post<{ ok: true; mode: 'send'; types: ContractType[]; links: ContractLinks }>(
     '/api/contracts/generate',
-    { crewId, mode: 'send', ...(lang ? { lang } : {}) },
+    { crewId, mode: 'send', types },
   );
 }
 

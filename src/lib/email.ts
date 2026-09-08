@@ -1,10 +1,10 @@
 import 'server-only';
 
-// Email delivery via SMTP (Nodemailer). Sends the bilingual "contracts ready to
-// sign" message with two signing buttons (one per contract amount).
+// Email delivery via SMTP (Nodemailer). Sends a bilingual (EN + AR) "contract
+// ready to sign" message for ONE contract, with a single signing button. Each
+// contract (A / B) is emailed separately.
 
 import nodemailer from 'nodemailer';
-import type { Language } from './types';
 
 let cached: nodemailer.Transporter | null = null;
 
@@ -28,18 +28,17 @@ function transporter(): nodemailer.Transporter {
 
 export interface ContractEmailParams {
   to: string;
-  lang: Language;
   crewName: string;
   projectName: string;
   role: string;
   dateFrom: string;
   dateTo: string;
-  amountX: string;
-  amountY: string;
-  signUrlX: string;
-  signUrlY: string;
+  amount: string; // this contract's amount, formatted
+  contractLabel: string; // "A" or "B"
+  signUrl: string;
 }
 
+/** Send ONE bilingual (EN + AR) contract email with a single signing button. */
 export async function sendContractEmail(p: ContractEmailParams): Promise<void> {
   const from = process.env.EMAIL_FROM ?? process.env.SMTP_USER!;
   const { subject, html, text } = buildContractEmail(p);
@@ -51,38 +50,7 @@ function buildContractEmail(p: ContractEmailParams): {
   html: string;
   text: string;
 } {
-  const ar = p.lang === 'ar';
-  const dir = ar ? 'rtl' : 'ltr';
-
-  const s = ar
-    ? {
-        subject: `عقود ${p.projectName} جاهزة للتوقيع`,
-        greeting: `مرحباً ${p.crewName}،`,
-        intro: `عقودك لمشروع "${p.projectName}" جاهزة للمراجعة والتوقيع.`,
-        please: 'يرجى توقيع العقدين أدناه:',
-        btnX: `توقيع العقد الأول (المبلغ: ${p.amountX} درهم)`,
-        btnY: `توقيع العقد الثاني (المبلغ: ${p.amountY} درهم)`,
-        infoTitle: 'بياناتك المسجّلة:',
-        name: 'الاسم',
-        roleL: 'الدور',
-        period: 'الفترة',
-        questions: 'لأي استفسار، يمكنك الرد على هذا البريد.',
-        sign: 'مع التحية،\nأوفر إكسبوجر برودكشنز',
-      }
-    : {
-        subject: `Your OEP Contracts Are Ready to Sign — ${p.projectName}`,
-        greeting: `Hi ${p.crewName},`,
-        intro: `Your contracts for project "${p.projectName}" are ready for your review and signature.`,
-        please: 'Please sign both contracts below:',
-        btnX: `Sign Contract 1 (Amount: ${p.amountX} AED)`,
-        btnY: `Sign Contract 2 (Amount: ${p.amountY} AED)`,
-        infoTitle: 'Your info on file:',
-        name: 'Name',
-        roleL: 'Role',
-        period: 'Period',
-        questions: 'Questions? Reply to this email.',
-        sign: 'Best,\nOver Exposure Productions',
-      };
+  const subject = `Your OEP Contract ${p.contractLabel} — ${p.projectName} / عقدك جاهز للتوقيع`;
 
   const button = (url: string, label: string) => `
     <a href="${url}" style="display:block;margin:10px 0;padding:14px 20px;background:#e8b04b;color:#0a0a0b;
@@ -91,39 +59,40 @@ function buildContractEmail(p: ContractEmailParams): {
     </a>`;
 
   const html = `
-  <div dir="${dir}" style="max-width:560px;margin:0 auto;padding:24px;background:#111113;border-radius:16px;
+  <div style="max-width:560px;margin:0 auto;padding:24px;background:#111113;border-radius:16px;
        color:#f6f5f2;font-family:Arial,Helvetica,sans-serif;">
     <div style="height:6px;background:#e8b04b;border-radius:6px;margin-bottom:20px;"></div>
-    <p style="font-size:16px;">${s.greeting}</p>
-    <p style="color:#cfcfcf;line-height:1.6;">${s.intro}</p>
-    <p style="color:#cfcfcf;">${s.please}</p>
-    ${button(p.signUrlX, s.btnX)}
-    ${button(p.signUrlY, s.btnY)}
+    <p style="font-size:16px;">Hi ${p.crewName},</p>
+    <p style="color:#cfcfcf;line-height:1.6;">Your contract <strong>${p.contractLabel}</strong>
+      (Amount: ${p.amount} AED) for project "${p.projectName}" is ready to review and sign.</p>
+    ${button(p.signUrl, `Sign Contract ${p.contractLabel} (${p.amount} AED)`)}
     <div style="margin-top:20px;padding:16px;background:#1a1a1d;border-radius:12px;color:#cfcfcf;font-size:14px;">
-      <strong>${s.infoTitle}</strong><br/>
-      ${s.name}: ${p.crewName}<br/>
-      ${s.roleL}: ${p.role}<br/>
-      ${s.period}: ${p.dateFrom} — ${p.dateTo}
+      Name: ${p.crewName}<br/>Role: ${p.role}<br/>Period: ${p.dateFrom} — ${p.dateTo}
     </div>
-    <p style="color:#9a9aa2;font-size:13px;margin-top:20px;">${s.questions}</p>
-    <p style="color:#9a9aa2;font-size:13px;white-space:pre-line;">${s.sign}</p>
+    <hr style="border:none;border-top:1px solid #2a2a2e;margin:20px 0;"/>
+    <div dir="rtl" style="text-align:right;">
+      <p style="font-size:16px;">مرحباً ${p.crewName}،</p>
+      <p style="color:#cfcfcf;line-height:1.8;">عقدك <strong>${p.contractLabel}</strong>
+        (المبلغ: ${p.amount} درهم) لمشروع "${p.projectName}" جاهز للمراجعة والتوقيع عبر الزر أعلاه.</p>
+    </div>
+    <p style="color:#9a9aa2;font-size:13px;margin-top:20px;">Questions? Reply to this email. / لأي استفسار، يمكنك الرد على هذا البريد.</p>
+    <p style="color:#9a9aa2;font-size:13px;">Over Exposure Productions</p>
   </div>`;
 
   const text = [
-    s.greeting,
+    `Hi ${p.crewName},`,
     '',
-    s.intro,
+    `Your contract ${p.contractLabel} (Amount: ${p.amount} AED) for project "${p.projectName}" is ready to sign:`,
+    p.signUrl,
     '',
-    `${s.btnX}: ${p.signUrlX}`,
-    `${s.btnY}: ${p.signUrlY}`,
+    `Name: ${p.crewName}`,
+    `Role: ${p.role}`,
+    `Period: ${p.dateFrom} — ${p.dateTo}`,
     '',
-    `${s.name}: ${p.crewName}`,
-    `${s.roleL}: ${p.role}`,
-    `${s.period}: ${p.dateFrom} — ${p.dateTo}`,
+    `مرحباً ${p.crewName}، عقدك ${p.contractLabel} (المبلغ: ${p.amount} درهم) جاهز للتوقيع عبر الرابط أعلاه.`,
     '',
-    s.questions,
-    s.sign,
+    'Over Exposure Productions',
   ].join('\n');
 
-  return { subject: s.subject, html, text };
+  return { subject, html, text };
 }
