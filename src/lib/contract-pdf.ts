@@ -161,24 +161,24 @@ const isArabicChar = (ch: string): boolean => {
 };
 
 /**
- * Reshape an Arabic line and lay it out visually for pdf-lib (which does no
- * bidi). We split into directional runs: Arabic runs are reversed to visual
- * RTL order, while Latin/number runs (crew name, IBAN, dates) keep their order.
- * Then the run order is reversed for the RTL base direction. This keeps mixed
- * content readable; for pixel-exact legal bidi, use a Docuseal Arabic template.
+ * Lay out an Arabic line visually for pdf-lib (which does no bidi shaping).
+ * arabic-reshaper's convertArabic both reshapes the letters AND reverses the
+ * whole string to visual RTL order — which leaves any embedded Latin/number
+ * runs (crew name, IBAN, dates) backwards. So we reshape, then un-reverse ONLY
+ * the non-Arabic runs; Arabic runs are already correct. Verified by rendering.
+ * For pixel-exact legal bidi, prefer a Docuseal Arabic template.
  */
 function shapeArabicLine(line: string, reshape: (s: string) => string): string {
-  const reshaped = reshape(line);
-  const runs: Array<{ rtl: boolean; text: string }> = [];
-  for (const ch of Array.from(reshaped)) {
-    const rtl = isArabicChar(ch);
+  const visual = reshape(line);
+  const runs: Array<{ ar: boolean; text: string }> = [];
+  for (const ch of Array.from(visual)) {
+    const ar = isArabicChar(ch);
     const last = runs[runs.length - 1];
-    if (last && last.rtl === rtl) last.text += ch;
-    else runs.push({ rtl, text: ch });
+    if (last && last.ar === ar) last.text += ch;
+    else runs.push({ ar, text: ch });
   }
   return runs
-    .reverse()
-    .map((r) => (r.rtl ? Array.from(r.text).reverse().join('') : r.text))
+    .map((r) => (r.ar ? r.text : Array.from(r.text).reverse().join('')))
     .join('');
 }
 
@@ -199,7 +199,9 @@ async function embedArabicFont(pdf: PDFDocument): Promise<PDFFont> {
         'contracts via a Docuseal template instead.',
     );
   }
-  return pdf.embedFont(bytes, { subset: true });
+  // subset:false — subsetting Amiri drops most Arabic glyphs (renders near-blank),
+  // so embed the full font. ~450KB per Arabic PDF, which is fine.
+  return pdf.embedFont(bytes, { subset: false });
 }
 
 // --- Layout ----------------------------------------------------------------
