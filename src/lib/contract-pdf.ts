@@ -45,7 +45,7 @@ async function drawBrandLogo(
   centerX: number,
   topY: number,
 ): Promise<number> {
-  const B = 52; // badge size in points
+  const B = 38; // badge size in points
   try {
     const bytes = await readFile(path.join(process.cwd(), 'public', 'oep-logo.png'));
     const img = await pdf.embedPng(bytes);
@@ -222,7 +222,7 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
     const width = font.widthOfTextAtSize(shaped, size);
     const x = rtl ? A4.w - MARGIN - width : MARGIN;
     cur.page.drawText(shaped, { x, y: cur.y, size, font, color });
-    cur.y -= size * 1.5;
+    cur.y -= size * 1.3;
   };
 
   const drawCentered = (
@@ -234,13 +234,13 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
     const shaped = shape(text);
     const width = font.widthOfTextAtSize(shaped, size);
     cur.page.drawText(shaped, { x: (A4.w - width) / 2, y: cur.y, size, font, color });
-    cur.y -= size * 1.5;
+    cur.y -= size * 1.3;
   };
 
-  const ensureSpace = (needed: number) => {
-    if (cur.y - needed < MARGIN) {
-      cur = { page: pdf.addPage([A4.w, A4.h]), y: A4.h - MARGIN };
-    }
+  // Single-page contract: never spill onto a second page. Kept as a no-op so
+  // the call sites still read as intent markers.
+  const ensureSpace = (_needed: number) => {
+    void _needed;
   };
 
   const wrap = (text: string, font: PDFFont, size: number): string[] => {
@@ -268,39 +268,36 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
       ensureSpace(size * 1.6);
       drawLine(line, font, size, color);
     }
-    cur.y -= size * 0.5;
+    cur.y -= size * 0.35;
   };
 
   // Header: thin brand strip, the OEP logo centred on top, wordmark, then title.
   cur.page.drawRectangle({ x: 0, y: A4.h - 6, width: A4.w, height: 6, color: AMBER });
 
-  const logoBottom = await drawBrandLogo(pdf, cur.page, A4.w / 2, A4.h - 22);
-  cur.y = logoBottom - 16;
+  const logoBottom = await drawBrandLogo(pdf, cur.page, A4.w / 2, A4.h - 18);
+  cur.y = logoBottom - 12;
 
   const brand = rtl ? 'أوفر إكسبوجر برودكشنز' : 'OVER EXPOSURE PRODUCTIONS';
-  drawCentered(brand, bold, 10, GREY);
-  cur.y -= 8;
+  drawCentered(brand, bold, 9, GREY);
+  cur.y -= 4;
 
   // Title — centred, and just the contract name (no "(X)"/"(Y)" suffix).
-  drawCentered(tpl.title, bold, 20);
-  cur.y -= 14;
+  drawCentered(tpl.title, bold, 15);
+  cur.y -= 8;
 
-  // Intro + sections.
-  paragraph(fillPlaceholders(tpl.intro, placeholders), regular, 11);
-  cur.y -= 6;
+  // Intro + sections — compact so the whole contract stays on ONE page.
+  paragraph(fillPlaceholders(tpl.intro, placeholders), regular, 9);
+  cur.y -= 3;
 
   for (const section of tpl.sections) {
     ensureSpace(40);
-    drawLine(section.heading, bold, 12);
-    cur.y -= 2;
-    paragraph(fillPlaceholders(section.body, placeholders), regular, 11);
+    drawLine(section.heading, bold, 9.5);
+    cur.y -= 1;
+    paragraph(fillPlaceholders(section.body, placeholders), regular, 9);
   }
 
-  // Signature block near the bottom of the current page.
-  ensureSpace(120);
-  cur.y = Math.max(cur.y, MARGIN + 110);
-  const blockY = MARGIN + 70;
-  const lineY = blockY;
+  // Signature block at a FIXED position near the bottom of the single page.
+  const lineY = MARGIN + 64;
   const sigX = rtl ? MARGIN : A4.w - MARGIN - 220;
 
   cur.page.drawLine({
@@ -312,15 +309,15 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
   const sigLabel = shape(tpl.signatureLabel);
   cur.page.drawText(sigLabel, {
     x: sigX,
-    y: lineY - 16,
-    size: 10,
+    y: lineY - 14,
+    size: 9,
     font: regular,
     color: GREY,
   });
   cur.page.drawText(shape(`${tpl.dateLabel}: ${placeholders.TODAY}`), {
     x: sigX,
-    y: lineY - 34,
-    size: 10,
+    y: lineY - 30,
+    size: 9,
     font: regular,
     color: GREY,
   });
