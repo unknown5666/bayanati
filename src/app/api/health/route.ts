@@ -9,7 +9,36 @@ export const dynamic = 'force-dynamic';
 // Remove once the intake path is confirmed working.
 
 // A build marker so we can confirm which commit is actually live.
-const BUILD_MARKER = '616c215+health1';
+const BUILD_MARKER = '616c215+health2';
+
+/**
+ * Report the SHAPE of the base64 service-account var without leaking the secret.
+ * The non-secret JSON header ({"type":"service_account","project_id":...}) is
+ * safe to echo; the private_key lives deep in the object and is never shown.
+ */
+function base64Shape(raw: string | undefined) {
+  if (!raw) return { present: false };
+  const trimmed = raw.trim();
+  const info: Record<string, unknown> = {
+    present: true,
+    length: raw.length,
+    head8: trimmed.slice(0, 8), // correct value starts "eyJ0eXBl"
+    tail4: trimmed.slice(-4),
+    startsWithQuote: /^["']/.test(trimmed),
+    startsWithPrefix: /^FIREBASE_SERVICE_ACCOUNT_BASE64\s*=/i.test(trimmed),
+    hasWhitespaceInside: /\s/.test(trimmed),
+    firstCharCode: trimmed.charCodeAt(0), // 65279 = BOM, 34 = ", 70 = 'F'
+  };
+  try {
+    const clean = trimmed.replace(/\s+/g, '');
+    const decoded = Buffer.from(clean, 'base64').toString('utf8');
+    info.decodedHead30 = decoded.slice(0, 30); // expect '{"type": "service_account"'
+    info.decodedFirstCharCode = decoded.charCodeAt(0); // 123 = '{'
+  } catch (err) {
+    info.decodeError = err instanceof Error ? err.message : String(err);
+  }
+  return info;
+}
 
 function keyShape(raw: string | undefined) {
   if (!raw) return { present: false };
@@ -48,6 +77,7 @@ export async function GET() {
       GOOGLE_DRIVE_ROOT_FOLDER_ID: !!process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID,
     },
     privateKeyShape: keyShape(rawKey),
+    base64Shape: base64Shape(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64),
   };
 
   // Try to actually initialise Firebase Admin and report the precise failure.
