@@ -4,10 +4,7 @@ export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-8 px-6 py-16 text-center">
       <div>
-        <p className="text-sm uppercase tracking-[0.3em] text-exposure">
-          Over Exposure Productions
-        </p>
-        <h1 className="mt-3 text-5xl font-bold tracking-tight">Bayanati</h1>
+        <h1 className="text-5xl font-bold tracking-tight">Bayanati</h1>
         <p className="mt-4 text-lg text-paper/70">
           Crew intake &amp; contract automation.
         </p>

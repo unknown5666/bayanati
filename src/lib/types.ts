@@ -24,7 +24,7 @@ export interface PersonalInfo {
 export interface DocumentRefs {
   emiratesId: string; // 15-digit number, formatted 784-YYYY-NNNNNNN-C
   passport: string; // alphanumeric 6-10
-  // Storage/Drive links, filled after upload.
+  // Google Drive webViewLinks, filled after upload.
   emiratesIdFront?: string;
   emiratesIdBack?: string;
   passportImage?: string;

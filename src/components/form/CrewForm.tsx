@@ -125,7 +125,7 @@ export function CrewForm() {
     <div dir={dir(lang)} className="mx-auto max-w-xl">
       {/* Sticky language selector */}
       <div className="sticky top-0 z-10 -mx-4 mb-4 flex items-center justify-between border-b border-ink-800 bg-ink-950/90 px-4 py-3 backdrop-blur">
-        <span className="text-sm font-semibold text-exposure">{t(lang, 'brand')}</span>
+        <span className="text-sm font-semibold text-paper/70">{t(lang, 'form_title')}</span>
         <div className="flex gap-1" role="group" aria-label={t(lang, 'select_language')}>
           {LANGUAGES.map((l) => (
             <button

@@ -24,6 +24,12 @@ const config: Config = {
           soft: '#f2c876',
           deep: '#c8902f',
         },
+        // Over Exposure Productions logo maroon (the "X" mark).
+        brand: {
+          DEFAULT: '#8e1f3f',
+          soft: '#a83251',
+          deep: '#6f172f',
+        },
         paper: '#f6f5f2', // off-white for light-mode surfaces
       },
       fontFamily: {

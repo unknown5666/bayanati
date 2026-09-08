@@ -9,7 +9,6 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, type Auth } from 'firebase/auth';
 import { getDatabase, type Database } from 'firebase/database';
-import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
 // Firebase web config is public by design (it is shipped to every browser), so
 // the real values are safe to keep in source as fallbacks. Env vars still win
@@ -37,7 +36,6 @@ const firebaseConfig = {
 
 let cachedAuth: Auth | undefined;
 let cachedDb: Database | undefined;
-let cachedStorage: FirebaseStorage | undefined;
 
 function app(): FirebaseApp {
   return getApps().length ? getApp() : initializeApp(firebaseConfig);
@@ -49,10 +47,6 @@ export function firebaseAuth(): Auth {
 
 export function firebaseDb(): Database {
   return (cachedDb ??= getDatabase(app()));
-}
-
-export function firebaseStorage(): FirebaseStorage {
-  return (cachedStorage ??= getStorage(app()));
 }
 
 export function googleProvider(): GoogleAuthProvider {

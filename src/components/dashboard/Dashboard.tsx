@@ -60,9 +60,6 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
     <div className="mx-auto max-w-6xl px-4 py-6">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-exposure">
-            Over Exposure
-          </p>
           <h1 className="text-2xl font-bold">Bayanati Dashboard</h1>
         </div>
         <div className="flex items-center gap-3 text-sm">

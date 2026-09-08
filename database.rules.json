@@ -8,7 +8,7 @@
       ".indexOn": ["createdAt"],
       "$crewId": {
         ".read": "auth != null && auth.token.admin === true",
-        ".write": "(auth != null && auth.token.admin === true) || (!data.exists() && newData.child('contract/status').val() === 'submitted')",
+        ".write": "auth != null && auth.token.admin === true",
         ".validate": "newData.hasChildren(['id', 'personal', 'documents', 'contract'])"
       }
     },

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter, Cairo } from 'next/font/google';
 import './globals.css';
 import { ChunkReloadGuard } from '@/components/ChunkReloadGuard';
+import { BrandHeader } from '@/components/BrandHeader';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -38,6 +39,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${cairo.variable}`}>
       <body className="font-sans">
         <ChunkReloadGuard />
+        <BrandHeader />
         {children}
       </body>
     </html>

@@ -45,10 +45,7 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
       <div className="card w-full max-w-sm p-7">
-        <p className="text-center text-sm uppercase tracking-[0.3em] text-exposure">
-          Over Exposure
-        </p>
-        <h1 className="mt-2 text-center text-2xl font-bold">Bayanati Admin</h1>
+        <h1 className="text-center text-2xl font-bold">Bayanati Admin</h1>
         <p className="mt-1 text-center text-sm text-paper/60">
           Sign in to manage crew &amp; contracts.
         </p>
