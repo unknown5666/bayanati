@@ -65,9 +65,10 @@ export async function POST(req: Request) {
       const pdf = await generateContractPdf({ lang, type, placeholders });
       pdfs[type] = pdf;
 
+      const letter = type === 'X' ? 'A' : 'B';
       const up = await uploadToDrive({
         pathSegments: ['Projects', projectName, 'Contracts', 'Pending', crewName],
-        fileName: `contract_${type}.pdf`,
+        fileName: `Contract - ${crew.personal.firstName} - ${crew.personal.lastName} - ${letter}.pdf`,
         mimeType: 'application/pdf',
         data: pdf,
       });

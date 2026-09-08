@@ -37,7 +37,7 @@ export async function setContractStatus(
 }
 
 export async function getProjectName(projectId: string): Promise<string> {
-  if (projectId === '_intake') return 'Intake';
+  if (projectId === '_intake') return 'How To Tame A Man';
   const snap = await adminDb().ref(`projects/${projectId}/name`).get();
   return snap.exists() ? String(snap.val()) : projectId;
 }

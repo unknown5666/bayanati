@@ -22,11 +22,65 @@ import {
   type PDFPage,
 } from 'pdf-lib';
 import type { ContractPlaceholders, ContractType, CrewMember, Language } from './types';
-import { CONTRACT_TEMPLATES, contractTitleFor } from './contract-templates';
+import { CONTRACT_TEMPLATES } from './contract-templates';
 
 const AMBER = rgb(0.91, 0.69, 0.29);
 const INK = rgb(0.1, 0.1, 0.11);
 const GREY = rgb(0.35, 0.35, 0.4);
+
+// Over Exposure Productions mark, drawn to match src/components/BrandMark.tsx.
+const BRAND_BLACK = rgb(0.043, 0.043, 0.051);
+const BRAND_WHITE = rgb(0.965, 0.961, 0.949);
+const BRAND_MAROON = rgb(0.557, 0.122, 0.247);
+
+/**
+ * Draw the OEP logo centred with its top at `topY`. If `public/oep-logo.png`
+ * exists it is embedded verbatim; otherwise the mark is drawn as vectors (black
+ * squircle-ish badge, white field, two-tone maroon-over-black X). Returns the
+ * y-coordinate of the bottom of the logo so the caller can continue below it.
+ */
+async function drawBrandLogo(
+  pdf: PDFDocument,
+  page: PDFPage,
+  centerX: number,
+  topY: number,
+): Promise<number> {
+  const B = 52; // badge size in points
+  try {
+    const bytes = await readFile(path.join(process.cwd(), 'public', 'oep-logo.png'));
+    const img = await pdf.embedPng(bytes);
+    const dims = img.scaleToFit(B, B);
+    page.drawImage(img, {
+      x: centerX - dims.width / 2,
+      y: topY - dims.height,
+      width: dims.width,
+      height: dims.height,
+    });
+    return topY - dims.height;
+  } catch {
+    // No PNG on disk — draw the vector mark instead.
+  }
+
+  const x = centerX - B / 2;
+  const y = topY - B;
+  page.drawRectangle({ x, y, width: B, height: B, color: BRAND_BLACK });
+
+  const inset = B * 0.2;
+  const fx = x + inset;
+  const fy = y + inset;
+  const fs = B - inset * 2;
+  page.drawRectangle({ x: fx, y: fy, width: fs, height: fs, color: BRAND_WHITE });
+
+  const p1 = { x: fx, y: fy };
+  const p2 = { x: fx + fs, y: fy + fs };
+  const p3 = { x: fx + fs, y: fy };
+  const p4 = { x: fx, y: fy + fs };
+  page.drawLine({ start: p1, end: p2, thickness: B * 0.13, color: BRAND_BLACK });
+  page.drawLine({ start: p3, end: p4, thickness: B * 0.13, color: BRAND_BLACK });
+  page.drawLine({ start: p1, end: p2, thickness: B * 0.115, color: BRAND_MAROON });
+  page.drawLine({ start: p3, end: p4, thickness: B * 0.115, color: BRAND_MAROON });
+  return y;
+}
 
 export function formatAed(n?: number): string {
   if (n == null) return '—';
@@ -171,6 +225,18 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
     cur.y -= size * 1.5;
   };
 
+  const drawCentered = (
+    text: string,
+    font: PDFFont,
+    size: number,
+    color = INK,
+  ) => {
+    const shaped = shape(text);
+    const width = font.widthOfTextAtSize(shaped, size);
+    cur.page.drawText(shaped, { x: (A4.w - width) / 2, y: cur.y, size, font, color });
+    cur.y -= size * 1.5;
+  };
+
   const ensureSpace = (needed: number) => {
     if (cur.y - needed < MARGIN) {
       cur = { page: pdf.addPage([A4.w, A4.h]), y: A4.h - MARGIN };
@@ -205,22 +271,19 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
     cur.y -= size * 0.5;
   };
 
-  // Header brand strip.
-  cur.page.drawRectangle({
-    x: 0,
-    y: A4.h - 8,
-    width: A4.w,
-    height: 8,
-    color: AMBER,
-  });
+  // Header: thin brand strip, the OEP logo centred on top, wordmark, then title.
+  cur.page.drawRectangle({ x: 0, y: A4.h - 6, width: A4.w, height: 6, color: AMBER });
+
+  const logoBottom = await drawBrandLogo(pdf, cur.page, A4.w / 2, A4.h - 22);
+  cur.y = logoBottom - 16;
 
   const brand = rtl ? 'أوفر إكسبوجر برودكشنز' : 'OVER EXPOSURE PRODUCTIONS';
-  drawLine(brand, bold, 10, GREY);
-  cur.y -= 6;
-
-  // Title.
-  drawLine(contractTitleFor(lang, type), bold, 20);
+  drawCentered(brand, bold, 10, GREY);
   cur.y -= 8;
+
+  // Title — centred, and just the contract name (no "(X)"/"(Y)" suffix).
+  drawCentered(tpl.title, bold, 20);
+  cur.y -= 14;
 
   // Intro + sections.
   paragraph(fillPlaceholders(tpl.intro, placeholders), regular, 11);
@@ -262,8 +325,8 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
     color: GREY,
   });
 
-  // Footer note identifying the contract variant.
-  cur.page.drawText(`Contract ${type} · ${placeholders.CREW_NAME}`, {
+  // Footer note (no "Contract X" label — the two copies differ by amount).
+  cur.page.drawText(`${placeholders.CREW_NAME} · ${placeholders.PROJECT_NAME}`, {
     x: MARGIN,
     y: MARGIN - 20,
     size: 8,
