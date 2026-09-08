@@ -149,32 +149,54 @@ async function getReshaper(): Promise<((s: string) => string) | null> {
   return reshaper ?? null;
 }
 
-/** Reshape + visually reverse an Arabic line for pdf-lib's LTR drawing. */
+const isArabicChar = (ch: string): boolean => {
+  const c = ch.codePointAt(0) ?? 0;
+  return (
+    (c >= 0x0600 && c <= 0x06ff) || // Arabic
+    (c >= 0x0750 && c <= 0x077f) || // Arabic Supplement
+    (c >= 0x08a0 && c <= 0x08ff) || // Arabic Extended-A
+    (c >= 0xfb50 && c <= 0xfdff) || // Arabic Presentation Forms-A
+    (c >= 0xfe70 && c <= 0xfeff) // Arabic Presentation Forms-B
+  );
+};
+
+/**
+ * Reshape an Arabic line and lay it out visually for pdf-lib (which does no
+ * bidi). We split into directional runs: Arabic runs are reversed to visual
+ * RTL order, while Latin/number runs (crew name, IBAN, dates) keep their order.
+ * Then the run order is reversed for the RTL base direction. This keeps mixed
+ * content readable; for pixel-exact legal bidi, use a Docuseal Arabic template.
+ */
 function shapeArabicLine(line: string, reshape: (s: string) => string): string {
   const reshaped = reshape(line);
-  // Reverse to visual RTL order. Numbers/Latin runs stay approximate; keep the
-  // real legal Arabic in Docuseal templates for exact bidi.
-  return Array.from(reshaped).reverse().join('');
+  const runs: Array<{ rtl: boolean; text: string }> = [];
+  for (const ch of Array.from(reshaped)) {
+    const rtl = isArabicChar(ch);
+    const last = runs[runs.length - 1];
+    if (last && last.rtl === rtl) last.text += ch;
+    else runs.push({ rtl, text: ch });
+  }
+  return runs
+    .reverse()
+    .map((r) => (r.rtl ? Array.from(r.text).reverse().join('') : r.text))
+    .join('');
 }
 
 async function embedArabicFont(pdf: PDFDocument): Promise<PDFFont> {
   const fontkit = (await import('@pdf-lib/fontkit')).default;
   pdf.registerFontkit(fontkit);
-  const fontPath = path.join(
-    process.cwd(),
-    'src',
-    'assets',
-    'fonts',
-    'NotoNaskhArabic-Regular.ttf',
-  );
+  // Amiri: a Naskh font that covers Arabic (incl. presentation forms) AND
+  // Latin/punctuation, so mixed contract text (crew name, IBAN, dates) renders
+  // without missing-glyph crashes.
+  const fontPath = path.join(process.cwd(), 'src', 'assets', 'fonts', 'Amiri-Regular.ttf');
   let bytes: Buffer;
   try {
     bytes = await readFile(fontPath);
   } catch {
     throw new Error(
-      `Arabic contract font not found at ${fontPath}. Download ` +
-        'NotoNaskhArabic-Regular.ttf (Google Fonts, OFL) into src/assets/fonts/, ' +
-        'or generate Arabic contracts via a Docuseal template instead.',
+      `Arabic contract font not found at ${fontPath}. Add Amiri-Regular.ttf ` +
+        '(Google Fonts, OFL) into src/assets/fonts/, or generate Arabic ' +
+        'contracts via a Docuseal template instead.',
     );
   }
   return pdf.embedFont(bytes, { subset: true });
