@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAdminAuth } from '@/lib/use-admin-auth';
 import { Dashboard } from '@/components/dashboard/Dashboard';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { signOut } from 'firebase/auth';
 import { firebaseAuth } from '@/lib/firebase/client';
 
@@ -37,7 +38,11 @@ export default function DashboardPage() {
 
   if (!user) return <Centered>Redirecting…</Centered>;
 
-  return <Dashboard adminEmail={user.email ?? ''} />;
+  return (
+    <ErrorBoundary>
+      <Dashboard adminEmail={user.email ?? ''} />
+    </ErrorBoundary>
+  );
 }
 
 function Centered({ children }: { children: React.ReactNode }) {

@@ -19,9 +19,14 @@ export function useCrewList(): { crew: CrewMember[]; loading: boolean; error?: s
       r,
       (snap) => {
         const val = (snap.val() ?? {}) as Record<string, CrewMember>;
-        const list = Object.values(val).sort(
-          (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0),
-        );
+        // Drop malformed/partial records (e.g. a stray test write) so the
+        // dashboard's nested field access can never throw and blank the page.
+        const list = Object.values(val)
+          .filter(
+            (c): c is CrewMember =>
+              !!c && !!c.personal && !!c.contract && !!c.documents && !!c.signatures,
+          )
+          .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
         setCrew(list);
         setLoading(false);
       },
