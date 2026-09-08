@@ -4,7 +4,7 @@
 // The company identity, "First Party / Second Party" framing, and Abu Dhabi
 // governing-law clause below are taken from OEP's real house agreement (the
 // Genesis Permits & Approvals Services Agreement): Over Exposure Productions
-// FZ LLC, TRN 104814212700003, Licence B.L.1433/24 (Creative Media Authority,
+// FZ LLC, TRN 104814212700003, Licence B.L. 1433/26 (Creative Media Authority,
 // Abu Dhabi). The crew-specific clauses (role, term, compensation, confidentiality)
 // are a professional default — confirm their exact wording against the real crew
 // contract (مساعد_درون.pdf) before production. Keep the placeholder names intact.
@@ -33,7 +33,7 @@ export interface ContractTemplate {
 const en: ContractTemplate = {
   title: 'Crew Work Execution Contract',
   intro:
-    'This Agreement is made on {TODAY} between Over Exposure Productions FZ LLC — TRN 104814212700003, Licence No. B.L.1433/24 (Creative Media Authority, Abu Dhabi) — ("the Company", First Party), and {CREW_NAME} ("the Crew Member", Second Party), Emirates ID {EMIRATES_ID}, passport {PASSPORT}, nationality {NATIONALITY}, for services on the project "{PROJECT_NAME}".',
+    'This Agreement is made on {TODAY} between Over Exposure Productions FZ LLC — TRN 104814212700003, Licence No. B.L. 1433/26 (Creative Media Authority, Abu Dhabi) — ("the Company", First Party), and {CREW_NAME} ("the Crew Member", Second Party), Emirates ID {EMIRATES_ID}, passport {PASSPORT}, nationality {NATIONALITY}, for services on the project "{PROJECT_NAME}".',
   sections: [
     {
       heading: '1. Role & Scope',
@@ -67,7 +67,7 @@ const en: ContractTemplate = {
 const ar: ContractTemplate = {
   title: 'عقد تنفيذ عمل لطاقم الإنتاج',
   intro:
-    'حُرِّر هذا العقد بتاريخ {TODAY} بين شركة أوفر إكسبوجر برودكشنز (منطقة حرة ذ.م.م) — الرقم الضريبي 104814212700003، رخصة رقم B.L.1433/24 (هيئة الإعلام الإبداعي، أبوظبي) — ("الشركة"، الطرف الأول)، والسيد/ة {CREW_NAME} ("عضو الطاقم"، الطرف الثاني)، هوية إماراتية رقم {EMIRATES_ID}، جواز سفر {PASSPORT}، الجنسية {NATIONALITY}، لتقديم خدمات في مشروع "{PROJECT_NAME}".',
+    'حُرِّر هذا العقد بتاريخ {TODAY} بين شركة أوفر إكسبوجر برودكشنز (منطقة حرة ذ.م.م) — الرقم الضريبي 104814212700003، رخصة رقم B.L. 1433/26 (هيئة الإعلام الإبداعي، أبوظبي) — ("الشركة"، الطرف الأول)، والسيد/ة {CREW_NAME} ("عضو الطاقم"، الطرف الثاني)، هوية إماراتية رقم {EMIRATES_ID}، جواز سفر {PASSPORT}، الجنسية {NATIONALITY}، لتقديم خدمات في مشروع "{PROJECT_NAME}".',
   sections: [
     {
       heading: '١. الدور ونطاق العمل',
