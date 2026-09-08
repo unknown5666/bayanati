@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, Cairo } from 'next/font/google';
 import './globals.css';
+import { ChunkReloadGuard } from '@/components/ChunkReloadGuard';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -35,7 +36,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${inter.variable} ${cairo.variable}`}>
-      <body className="font-sans">{children}</body>
+      <body className="font-sans">
+        <ChunkReloadGuard />
+        {children}
+      </body>
     </html>
   );
 }
