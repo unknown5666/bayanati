@@ -136,7 +136,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
         title="Crew details"
         onClose={() => setSelectedId(null)}
       >
-        {selected && <CrewDetails crew={selected} />}
+        {selected && <CrewDetails key={selected.id} crew={selected} />}
       </Modal>
     </div>
   );

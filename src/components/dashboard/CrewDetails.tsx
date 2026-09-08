@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Modal } from './Modal';
 import { StatusBadge } from './StatusBadge';
 import type { CrewMember } from '@/lib/types';
-import { generateContracts, updateCrew } from '@/lib/api-client';
+import { generateContracts, sendContracts, updateCrew, type ContractLinks } from '@/lib/api-client';
 
 function maskIban(iban?: string): string {
   if (!iban) return '—';
@@ -31,22 +31,52 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const c = crew.contract;
+  const [links, setLinks] = useState<ContractLinks>({ X: c.pdfLinkX, Y: c.pdfLinkY });
   const name = `${crew.personal.firstName} ${crew.personal.lastName}`.trim();
-  const canSend =
-    c.role && c.amountX != null && c.amountY != null && c.dateFrom && c.dateTo && c.iban;
+  const ready =
+    Boolean(c.role) &&
+    c.amountX != null &&
+    c.amountY != null &&
+    Boolean(c.dateFrom) &&
+    Boolean(c.dateTo) &&
+    Boolean(c.iban);
+  const alreadySent =
+    c.status === 'sent' ||
+    c.status === 'signed_x' ||
+    c.status === 'signed_y' ||
+    c.status === 'both_signed';
 
-  async function run(fn: () => Promise<unknown>, okText: string) {
+  async function run<T>(fn: () => Promise<T>, okText: string): Promise<T | undefined> {
     setBusy(true);
     setMsg(null);
     try {
-      await fn();
+      const result = await fn();
       setMsg({ kind: 'ok', text: okText });
       setModal(null);
+      return result;
     } catch (err) {
       setMsg({ kind: 'err', text: err instanceof Error ? err.message : 'Failed' });
+      return undefined;
     } finally {
       setBusy(false);
     }
+  }
+
+  async function onGenerate() {
+    const res = await run(
+      () => generateContracts(crew.id),
+      'Contracts generated — open them below to review. Nothing was sent.',
+    );
+    if (res?.links) setLinks(res.links);
+  }
+
+  async function onSend() {
+    const verb = alreadySent ? 'resent' : 'sent';
+    const res = await run(
+      () => sendContracts(crew.id),
+      `Contracts generated and ${verb} to the crew member ✓`,
+    );
+    if (res?.links) setLinks(res.links);
   }
 
   return (
@@ -130,23 +160,57 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
         </a>
       </div>
 
-      <button
-        className="btn-primary w-full"
-        disabled={busy || !canSend}
-        onClick={() =>
-          run(() => generateContracts(crew.id), 'Contracts generated and emailed ✓')
-        }
-        title={canSend ? '' : 'Set role, both amounts, dates and IBAN first'}
-      >
-        {busy
-          ? 'Working…'
-          : c.status === 'submitted' || c.status === 'pending'
-            ? '✉️ Generate & Send Contracts'
-            : '🔄 Resend Contracts'}
-      </button>
-      {!canSend && (
-        <p className="-mt-2 text-center text-xs text-paper/50">
-          Set role, both amounts, dates and IBAN to enable sending.
+      {(links.X || links.Y) && (
+        <section className="rounded-xl border border-ink-800 divide-y divide-ink-800">
+          <p className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-paper/50">
+            Generated contracts
+          </p>
+          {links.X && (
+            <a
+              className="flex items-center justify-between px-4 py-2.5 text-sm hover:bg-ink-800"
+              href={links.X}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="font-medium">📄 Contract X</span>
+              <span className="text-paper/50">View ↗</span>
+            </a>
+          )}
+          {links.Y && (
+            <a
+              className="flex items-center justify-between px-4 py-2.5 text-sm hover:bg-ink-800"
+              href={links.Y}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="font-medium">📄 Contract Y</span>
+              <span className="text-paper/50">View ↗</span>
+            </a>
+          )}
+        </section>
+      )}
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button
+          className="btn-ghost w-full"
+          disabled={busy || !ready}
+          onClick={onGenerate}
+          title={ready ? 'Build the PDFs and view them — nothing is sent' : 'Set role, both amounts, dates and IBAN first'}
+        >
+          {busy ? 'Working…' : '📄 Generate & View'}
+        </button>
+        <button
+          className="btn-primary w-full"
+          disabled={busy || !ready}
+          onClick={onSend}
+          title={ready ? 'Generate, create signing requests and email the crew member' : 'Set role, both amounts, dates and IBAN first'}
+        >
+          {busy ? 'Working…' : alreadySent ? '🔄 Generate & Resend' : '✉️ Generate & Send'}
+        </button>
+      </div>
+      {!ready && (
+        <p className="-mt-1 text-center text-xs text-paper/50">
+          Set role, both amounts, dates and IBAN to enable generating or sending.
         </p>
       )}
 

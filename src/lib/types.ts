@@ -41,6 +41,11 @@ export interface ContractDetails {
   dateTo?: string;
   iban?: string; // AE IBAN
   sentAt?: number;
+  // Google Drive webViewLinks to the generated PDFs (filled on generate OR send,
+  // so an admin can review the contracts before sending them out).
+  pdfLinkX?: string;
+  pdfLinkY?: string;
+  generatedAt?: number;
   // Docuseal submission ids so we can reconcile webhook events.
   docusealSubmissionX?: string;
   docusealSubmissionY?: string;

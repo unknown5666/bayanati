@@ -26,6 +26,23 @@ export function updateCrew(crewId: string, patch: CrewPatch) {
   return post<{ ok: true }>('/api/crew/update', { crewId, patch });
 }
 
+export interface ContractLinks {
+  X?: string;
+  Y?: string;
+}
+
+/** Build the contract PDFs and return Drive view links WITHOUT sending. */
 export function generateContracts(crewId: string) {
-  return post<{ ok: true }>('/api/contracts/generate', { crewId });
+  return post<{ ok: true; mode: 'generate'; links: ContractLinks }>(
+    '/api/contracts/generate',
+    { crewId, mode: 'generate' },
+  );
+}
+
+/** Build the PDFs, create the Docuseal signing requests, and email the crew. */
+export function sendContracts(crewId: string) {
+  return post<{ ok: true; mode: 'send'; links: ContractLinks }>(
+    '/api/contracts/generate',
+    { crewId, mode: 'send' },
+  );
 }

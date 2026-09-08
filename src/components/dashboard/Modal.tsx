@@ -30,10 +30,10 @@ export function Modal({
       aria-label={title}
     >
       <div
-        className="card w-full max-w-md rounded-b-none p-6 sm:rounded-2xl"
+        className="card flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-b-none p-0 sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-ink-800 bg-ink-900/95 px-6 py-4 backdrop-blur">
           <h3 className="text-lg font-semibold">{title}</h3>
           <button
             onClick={onClose}
@@ -43,7 +43,7 @@ export function Modal({
             ✕
           </button>
         </div>
-        {children}
+        <div className="overflow-y-auto overscroll-contain px-6 py-5">{children}</div>
       </div>
     </div>
   );
