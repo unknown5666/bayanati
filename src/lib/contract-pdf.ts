@@ -131,9 +131,17 @@ let reshaper: ((s: string) => string) | null | undefined;
 async function getReshaper(): Promise<((s: string) => string) | null> {
   if (reshaper !== undefined) return reshaper;
   try {
-    // Optional dependency; only needed for Arabic PDFs.
+    // Optional dependency; only needed for Arabic PDFs. arabic-reshaper exposes
+    // its shaper as `convertArabic`; older/other builds may use `reshape`.
     const mod: any = await import('arabic-reshaper');
-    const fn = mod.reshape ?? mod.default?.reshape ?? mod.default ?? mod;
+    const d = mod.default ?? {};
+    const fn =
+      mod.convertArabic ??
+      mod.reshape ??
+      d.convertArabic ??
+      d.reshape ??
+      (typeof d === 'function' ? d : undefined) ??
+      (typeof mod === 'function' ? mod : undefined);
     reshaper = typeof fn === 'function' ? fn : null;
   } catch {
     reshaper = null;
