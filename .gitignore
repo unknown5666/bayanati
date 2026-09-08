@@ -43,3 +43,6 @@ firebase-adminsdk*.json
 # editor
 .vscode/
 .idea/
+
+# TypeScript incremental build cache (build artifact)
+tsconfig.tsbuildinfo
