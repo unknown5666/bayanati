@@ -21,6 +21,49 @@ import { getAuth, type Auth } from 'firebase-admin/auth';
 let cachedApp: App | undefined;
 
 /**
+ * Turn whatever a host control panel stored back into a valid PEM private key.
+ * Handles, in order: undefined/empty, surrounding single/double quotes,
+ * escaped newlines ("\n" and double-escaped "\\n"), CRLF, and the common case
+ * where the panel stripped ALL newlines leaving a single-line PEM — in which
+ * case we re-wrap the base64 body at 64 chars between the BEGIN/END markers.
+ */
+function normalizePrivateKey(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  let key = raw.trim();
+
+  // Strip a single layer of wrapping quotes if the panel kept them.
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1);
+  }
+
+  // Restore real newlines from escaped forms, then normalise CRLF.
+  key = key
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim();
+
+  // If newlines were stripped entirely (one long line), rebuild the PEM.
+  if (key.includes('BEGIN') && !key.includes('\n')) {
+    const m = key.match(/-----BEGIN ([A-Z ]+?)-----(.*?)-----END \1-----/);
+    if (m) {
+      const label = m[1].trim();
+      const body = m[2].replace(/\s+/g, '');
+      const wrapped = body.match(/.{1,64}/g)?.join('\n') ?? body;
+      key = `-----BEGIN ${label}-----\n${wrapped}\n-----END ${label}-----\n`;
+    }
+  }
+
+  // Ensure a trailing newline after the END marker (cert() is picky).
+  if (!key.endsWith('\n')) key += '\n';
+  return key;
+}
+
+/**
  * Resolve service-account credentials from either:
  *  1. FIREBASE_SERVICE_ACCOUNT_KEY — path to the downloaded JSON key file, or
  *  2. FIREBASE_ADMIN_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY — three inline vars.
@@ -46,8 +89,8 @@ function resolveCredential(): ServiceAccount {
 
   const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-  // Private keys pasted into env keep literal "\n"; restore real newlines.
-  const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  // Host panels mangle pasted PEM keys in several ways; normalise them all.
+  const privateKey = normalizePrivateKey(process.env.FIREBASE_ADMIN_PRIVATE_KEY);
   if (!projectId || !clientEmail || !privateKey) {
     throw new Error(
       'Firebase Admin credentials are missing. Set FIREBASE_SERVICE_ACCOUNT_KEY ' +
