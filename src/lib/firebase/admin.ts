@@ -17,7 +17,6 @@ import {
 } from 'firebase-admin/app';
 import { getDatabase, type Database } from 'firebase-admin/database';
 import { getAuth, type Auth } from 'firebase-admin/auth';
-import { getStorage } from 'firebase-admin/storage';
 
 let cachedApp: App | undefined;
 
@@ -81,17 +80,23 @@ export function adminAuth(): Auth {
   return getAuth(app());
 }
 
-/** Default Storage bucket, for reading crew-uploaded ID images server-side. */
-export function adminBucket() {
-  return getStorage(app()).bucket();
-}
+// Fallback admin allow-list so the dashboard works even if the ADMIN_EMAILS env
+// var was never set (or got wiped) on the host — same defensive pattern as the
+// public Firebase config fallbacks. These are not secrets: knowing an admin
+// email grants nothing without that account's Google/password credentials.
+const FALLBACK_ADMIN_EMAILS = ['iamnotness46@gmail.com'];
 
-/** Emails allowed into the dashboard, from ADMIN_EMAILS (comma-separated). */
+/**
+ * Emails allowed into the dashboard. Prefers the ADMIN_EMAILS env var
+ * (comma-separated) so admins can be changed without a code change; falls back
+ * to the built-in list when the env var is unset or empty.
+ */
 export function adminEmails(): string[] {
-  return (process.env.ADMIN_EMAILS ?? '')
+  const fromEnv = (process.env.ADMIN_EMAILS ?? '')
     .split(',')
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
+  return fromEnv.length ? fromEnv : FALLBACK_ADMIN_EMAILS;
 }
 
 export function isAdminEmail(email?: string | null): boolean {
