@@ -87,16 +87,17 @@ export function adminAuth(): Auth {
 const FALLBACK_ADMIN_EMAILS = ['iamnotness46@gmail.com'];
 
 /**
- * Emails allowed into the dashboard. Prefers the ADMIN_EMAILS env var
- * (comma-separated) so admins can be changed without a code change; falls back
- * to the built-in list when the env var is unset or empty.
+ * Emails allowed into the dashboard: the built-in owner list UNION whatever the
+ * ADMIN_EMAILS env var lists (comma-separated). Union — not "env overrides
+ * built-in" — so a missing, empty, OR wrongly-set ADMIN_EMAILS can never lock
+ * the owner out. Add more admins via the env var; the owner is always allowed.
  */
 export function adminEmails(): string[] {
   const fromEnv = (process.env.ADMIN_EMAILS ?? '')
     .split(',')
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
-  return fromEnv.length ? fromEnv : FALLBACK_ADMIN_EMAILS;
+  return Array.from(new Set([...FALLBACK_ADMIN_EMAILS, ...fromEnv]));
 }
 
 export function isAdminEmail(email?: string | null): boolean {
