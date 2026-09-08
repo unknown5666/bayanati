@@ -149,8 +149,8 @@ async function getReshaper(): Promise<((s: string) => string) | null> {
 const NBSP = String.fromCharCode(160);
 
 /**
- * Keep Latin/number words from breaking across lines in the RTL column (where a
- * split run reverses into gibberish) by joining intra-Latin spaces with NBSP.
+ * Keep Latin/number words from breaking across lines in the RTL column by
+ * joining intra-Latin spaces with NBSP (the wrapper splits on plain spaces).
  */
 const protectLatinRuns = (s: string): string =>
   s.replace(/([A-Za-z0-9])[ ]+(?=[A-Za-z0-9])/g, `$1${NBSP}`);
@@ -158,26 +158,26 @@ const protectLatinRuns = (s: string): string =>
 const isArabicChar = (ch: string): boolean => {
   const c = ch.codePointAt(0) ?? 0;
   return (
-    (c >= 0x0600 && c <= 0x06ff) || // Arabic
-    (c >= 0x0750 && c <= 0x077f) || // Arabic Supplement
-    (c >= 0x08a0 && c <= 0x08ff) || // Arabic Extended-A
-    (c >= 0xfb50 && c <= 0xfdff) || // Arabic Presentation Forms-A
-    (c >= 0xfe70 && c <= 0xfeff) // Arabic Presentation Forms-B
+    (c >= 0x0600 && c <= 0x06ff) ||
+    (c >= 0x0750 && c <= 0x077f) ||
+    (c >= 0x08a0 && c <= 0x08ff) ||
+    (c >= 0xfb50 && c <= 0xfdff) ||
+    (c >= 0xfe70 && c <= 0xfeff)
   );
 };
 
 /**
- * Lay out an Arabic line visually for pdf-lib (which does no bidi shaping).
- * arabic-reshaper's convertArabic both reshapes the letters AND reverses the
- * whole string to visual RTL order — which leaves any embedded Latin/number
- * runs (crew name, IBAN, dates) backwards. So we reshape, then un-reverse ONLY
- * the non-Arabic runs; Arabic runs are already correct. Verified by rendering.
- * For pixel-exact legal bidi, prefer a Docuseal Arabic template.
+ * Lay out one Arabic line for pdf-lib (draws LTR, no bidi). convertArabic
+ * reshapes AND outputs the whole line in visual RTL order (verified: drawing it
+ * LTR shows correct Arabic), which leaves embedded Latin/number runs (name,
+ * IBAN, dates, IDs) reversed — so we reverse each non-Arabic run back to reading
+ * order. The wrapper keeps values un-split (NBSP) so a run never straddles a
+ * line break. Verified with PyMuPDF renders.
  */
 function shapeArabicLine(line: string, reshape: (s: string) => string): string {
-  const visual = reshape(line);
+  const reshaped = reshape(line);
   const runs: Array<{ ar: boolean; text: string }> = [];
-  for (const ch of Array.from(visual)) {
+  for (const ch of Array.from(reshaped)) {
     const ar = isArabicChar(ch);
     const last = runs[runs.length - 1];
     if (last && last.ar === ar) last.text += ch;
@@ -328,7 +328,38 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
       y -= size * LH;
     };
 
+    // RTL: shape the WHOLE paragraph first (method D is correct on a complete
+    // unit), then wrap the already-visual string by words and draw each line
+    // as-is. Shaping per wrapped-line instead flips values at line boundaries.
+    const paraRTL = (text: string, size: number, f: PDFFont) => {
+      const visual = shapeAr(text);
+      const words = visual.split(/[  ]+/).filter(Boolean);
+      let line = '';
+      const flush = () => {
+        if (!line) return;
+        const w = f.widthOfTextAtSize(line, size);
+        page.drawText(line, { x: x1 - w, y, size, font: f, color: INK });
+        y -= size * LH;
+        line = '';
+      };
+      for (const word of words) {
+        const trial = line ? `${line} ${word}` : word;
+        if (f.widthOfTextAtSize(trial, size) > colW && line) {
+          flush();
+          line = word;
+        } else {
+          line = trial;
+        }
+      }
+      flush();
+      y -= size * 0.55;
+    };
+
     const para = (text: string, size: number, f: PDFFont) => {
+      if (rtl) {
+        paraRTL(text, size, f);
+        return;
+      }
       for (const l of wrapCol(text, size, f)) drawColLine(l, size, f);
       y -= size * 0.55;
     };
