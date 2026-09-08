@@ -68,15 +68,51 @@ function normalizePrivateKey(raw: string | undefined): string | undefined {
  *  1. FIREBASE_SERVICE_ACCOUNT_KEY — path to the downloaded JSON key file, or
  *  2. FIREBASE_ADMIN_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY — three inline vars.
  */
+interface ServiceAccountJson {
+  project_id: string;
+  client_email: string;
+  private_key: string;
+}
+
+/**
+ * Turn the FIREBASE_SERVICE_ACCOUNT_BASE64 env value into the service-account
+ * JSON, tolerating every common paste mistake:
+ *  - the whole "FIREBASE_SERVICE_ACCOUNT_BASE64=..." line copied as the value
+ *  - surrounding single/double quotes kept by the panel
+ *  - a leading UTF-8 BOM, and stray whitespace/newlines inside the base64
+ *  - the value pasted as RAW JSON instead of base64
+ */
+function parseServiceAccountBlob(input: string): ServiceAccountJson {
+  let v = input.trim();
+  // Some panels return the whole "NAME=value" line — drop a leading key=.
+  v = v.replace(/^\s*FIREBASE_SERVICE_ACCOUNT_BASE64\s*=\s*/i, '');
+  // Strip one layer of wrapping quotes.
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1);
+  }
+  // Strip a leading BOM.
+  v = v.replace(/^﻿/, '').trim();
+
+  // Already raw JSON? Parse directly.
+  if (v.startsWith('{')) {
+    return JSON.parse(v.replace(/^﻿/, ''));
+  }
+
+  // Otherwise base64: remove any whitespace/newlines the panel introduced.
+  const clean = v.replace(/\s+/g, '');
+  const decoded = Buffer.from(clean, 'base64').toString('utf8').replace(/^﻿/, '');
+  return JSON.parse(decoded);
+}
+
 function resolveCredential(): ServiceAccount {
   // 0. FIREBASE_SERVICE_ACCOUNT_BASE64 — the whole service-account JSON, base64
   //    encoded, in a single env var. Base64 has no newlines/quotes/PEM markers
   //    for a control panel to mangle, so this is the most robust option when a
   //    host keeps corrupting a pasted multi-line private key.
-  const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
-  if (b64) {
+  const b64raw = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+  if (b64raw) {
     try {
-      const json = JSON.parse(Buffer.from(b64.trim(), 'base64').toString('utf8'));
+      const json = parseServiceAccountBlob(b64raw);
       return {
         projectId: json.project_id,
         clientEmail: json.client_email,
@@ -84,8 +120,9 @@ function resolveCredential(): ServiceAccount {
       };
     } catch (err) {
       throw new Error(
-        'FIREBASE_SERVICE_ACCOUNT_BASE64 is set but is not valid base64-encoded ' +
-          'JSON: ' + (err instanceof Error ? err.message : 'unknown error'),
+        'FIREBASE_SERVICE_ACCOUNT_BASE64 is set but could not be parsed as ' +
+          'base64 JSON (or raw JSON): ' +
+          (err instanceof Error ? err.message : 'unknown error'),
       );
     }
   }
