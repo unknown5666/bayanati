@@ -69,6 +69,27 @@ function normalizePrivateKey(raw: string | undefined): string | undefined {
  *  2. FIREBASE_ADMIN_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY — three inline vars.
  */
 function resolveCredential(): ServiceAccount {
+  // 0. FIREBASE_SERVICE_ACCOUNT_BASE64 — the whole service-account JSON, base64
+  //    encoded, in a single env var. Base64 has no newlines/quotes/PEM markers
+  //    for a control panel to mangle, so this is the most robust option when a
+  //    host keeps corrupting a pasted multi-line private key.
+  const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+  if (b64) {
+    try {
+      const json = JSON.parse(Buffer.from(b64.trim(), 'base64').toString('utf8'));
+      return {
+        projectId: json.project_id,
+        clientEmail: json.client_email,
+        privateKey: json.private_key,
+      };
+    } catch (err) {
+      throw new Error(
+        'FIREBASE_SERVICE_ACCOUNT_BASE64 is set but is not valid base64-encoded ' +
+          'JSON: ' + (err instanceof Error ? err.message : 'unknown error'),
+      );
+    }
+  }
+
   const keyPath = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (keyPath) {
     const abs = path.isAbsolute(keyPath) ? keyPath : path.join(process.cwd(), keyPath);
