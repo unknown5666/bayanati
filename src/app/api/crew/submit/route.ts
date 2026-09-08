@@ -67,10 +67,12 @@ export async function POST(req: Request) {
       ['emiratesIdBack', 'Emirates_ID_Back'],
       ['passportImage', 'Passport'],
     ];
-    const files: Array<{ field: string; driveName: string; file: File }> = [];
+    // NOTE: use Blob, not File. Node 18 (Hostinger's runtime) has no global
+    // `File`; the uploaded part is a Blob subclass, so instanceof Blob is safe.
+    const files: Array<{ field: string; driveName: string; file: Blob }> = [];
     for (const [field, driveBase] of spec) {
       const f = form.get(field);
-      if (!(f instanceof File) || f.size === 0) {
+      if (!(f instanceof Blob) || f.size === 0) {
         return NextResponse.json({ error: `${field} image is required` }, { status: 400 });
       }
       const v = validateImageFile({ type: f.type, size: f.size });
