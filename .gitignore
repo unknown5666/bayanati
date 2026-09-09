@@ -46,3 +46,6 @@ firebase-adminsdk*.json
 
 # TypeScript incremental build cache (build artifact)
 tsconfig.tsbuildinfo
+
+# Local-only: ready-to-paste secrets, never commit
+hostinger-firebase-env.txt

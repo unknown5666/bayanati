@@ -166,25 +166,111 @@ const isArabicChar = (ch: string): boolean => {
   );
 };
 
+// A strong right-to-left glyph: an Arabic *letter*, excluding Arabic-Indic
+// digits (٠-٩) and Arabic punctuation (، ؛ ؟ ۔), which are weak/neutral for bidi.
+const isArabicLetter = (ch: string): boolean => {
+  const c = ch.codePointAt(0) ?? 0;
+  if ((c >= 0x0660 && c <= 0x066d) || (c >= 0x06f0 && c <= 0x06f9)) return false; // digits + separators
+  if (c === 0x060c || c === 0x061b || c === 0x061f || c === 0x06d4) return false; // ، ؛ ؟ ۔
+  return isArabicChar(ch);
+};
+
 /**
- * Lay out one Arabic line for pdf-lib (draws LTR, no bidi). convertArabic
- * reshapes AND outputs the whole line in visual RTL order (verified: drawing it
- * LTR shows correct Arabic), which leaves embedded Latin/number runs (name,
- * IBAN, dates, IDs) reversed — so we reverse each non-Arabic run back to reading
- * order. The wrapper keeps values un-split (NBSP) so a run never straddles a
- * line break. Verified with PyMuPDF renders.
+ * Does this token's FIRST strong-directional character make it read
+ * right-to-left? Leading neutrals (opening quote/bracket, digits, punctuation)
+ * are skipped; the first Latin letter means LTR, the first Arabic letter means
+ * RTL. A token with no strong letter at all (a bare number/date) is treated as
+ * non-RTL so it gets glued and never leads a line.
+ */
+const startsRtl = (tok: string): boolean => {
+  for (const ch of tok) {
+    const c = ch.codePointAt(0) ?? 0;
+    if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)) return false; // Latin letter
+    if (isArabicLetter(ch)) return true;
+  }
+  return false;
+};
+
+/**
+ * Split an RTL paragraph into wrap tokens, gluing every token that does NOT
+ * begin with a strong RTL letter (numbers, dates, IDs, IBAN, amounts, and Latin
+ * words/names — including ones that merely carry a trailing Arabic comma like
+ * "N1234567،") to a neighbouring Arabic word with a non-breaking space. This
+ * guarantees no wrapped display line can BEGIN with a Latin/number run — which
+ * matters because PDF viewers infer a line's base direction from its first
+ * strong character, and a line led by Latin/digits flips to LTR base and renders
+ * the whole line (Arabic included) reversed — the "point 3 / الأجر" bug. NBSP is
+ * used so the glue survives the plain-space splitting in the wrapper.
+ */
+function bindRtlTokens(text: string): string[] {
+  const raw = text.split(/[ \t]+/).filter(Boolean);
+  const out: string[] = [];
+  for (const tok of raw) {
+    if (!startsRtl(tok) && out.length) {
+      out[out.length - 1] = `${out[out.length - 1]}${NBSP}${tok}`;
+    } else {
+      out.push(tok);
+    }
+  }
+  // If the paragraph opens with non-RTL tokens (no previous word to glue to),
+  // merge them forward onto the first RTL word so nothing non-RTL ever leads.
+  while (out.length > 1 && !startsRtl(out[0])) {
+    out[1] = `${out[0]}${NBSP}${out[1]}`;
+    out.splice(0, 1);
+  }
+  return out;
+}
+
+const isSpaceChar = (ch: string): boolean =>
+  ch === ' ' || ch === '\t' || ch === NBSP;
+
+/**
+ * Shape one display line for pdf-lib, which draws glyphs strictly left-to-right.
+ * convertArabic only reshapes to contextual/presentation forms — it keeps
+ * LOGICAL order and does no reordering. The PDF viewer supplies the bidi at
+ * render time: it reverses each embedded left-to-right run (numbers and Latin —
+ * name, IBAN, dates, IDs) inside the RTL flow. To cancel that, we pre-reverse
+ * each such run here so it reads correctly on screen.
+ *
+ * Spaces are classified by their neighbours:
+ *   • a space BETWEEN two Latin/number runs stays part of that run and is
+ *     reversed with it, so a multi-word value keeps its word order (viewer
+ *     reverses the whole run back — "B.L. 1433/26", "Ravi Kumar" stay intact);
+ *   • a space at an Arabic↔Latin boundary is kept in place as a neutral, so the
+ *     gap between an Arabic word and an adjacent value doesn't hop to the wrong
+ *     side (e.g. "سفرN1234567 ،" instead of "سفر N1234567،").
+ *
+ * The caller guarantees each line begins with a strong RTL letter so its base
+ * direction stays RTL; a line led by a Latin/number run would otherwise flip and
+ * reverse wholesale. Verified with PyMuPDF renders.
  */
 function shapeArabicLine(line: string, reshape: (s: string) => string): string {
   const reshaped = reshape(line);
-  const runs: Array<{ ar: boolean; text: string }> = [];
+  type Kind = 'ar' | 'sp' | 'ltr';
+  const kindOf = (ch: string): Kind =>
+    isArabicChar(ch) ? 'ar' : isSpaceChar(ch) ? 'sp' : 'ltr';
+  const runs: Array<{ kind: Kind; text: string }> = [];
   for (const ch of Array.from(reshaped)) {
-    const ar = isArabicChar(ch);
+    const kind = kindOf(ch);
     const last = runs[runs.length - 1];
-    if (last && last.ar === ar) last.text += ch;
-    else runs.push({ ar, text: ch });
+    if (last && last.kind === kind) last.text += ch;
+    else runs.push({ kind, text: ch });
   }
-  return runs
-    .map((r) => (r.ar ? r.text : Array.from(r.text).reverse().join('')))
+  // A space flanked by Latin/number runs on BOTH sides belongs to that run
+  // (keeps multi-word values in order); re-tag it 'ltr' and coalesce.
+  for (let i = 1; i < runs.length - 1; i++) {
+    if (runs[i].kind === 'sp' && runs[i - 1].kind === 'ltr' && runs[i + 1].kind === 'ltr') {
+      runs[i].kind = 'ltr';
+    }
+  }
+  const merged: typeof runs = [];
+  for (const r of runs) {
+    const last = merged[merged.length - 1];
+    if (last && last.kind === r.kind) last.text += r.text;
+    else merged.push({ ...r });
+  }
+  return merged
+    .map((r) => (r.kind === 'ltr' ? Array.from(r.text).reverse().join('') : r.text))
     .join('');
 }
 
@@ -328,23 +414,30 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
       y -= size * LH;
     };
 
-    // RTL: shape the WHOLE paragraph first (method D is correct on a complete
-    // unit), then wrap the already-visual string by words and draw each line
-    // as-is. Shaping per wrapped-line instead flips values at line boundaries.
+    // RTL paragraph layout for pdf-lib (which has no bidi). Two rules keep it
+    // correct in real PDF viewers, which infer each line's base direction from
+    // its first strong character:
+    //   1) Wrap on the LOGICAL text, then shape each resulting DISPLAY line as a
+    //      whole (shapeAr reshapes glyphs and reorders embedded LTR runs). This
+    //      keeps values intact — shaping the paragraph before wrapping splits an
+    //      already-reordered value across the wrap and corrupts the last line.
+    //   2) `bindRtlTokens` glues numbers/Latin (IBAN, amounts, dates, IDs) to an
+    //      adjacent Arabic word so no wrapped line can START with a Latin run —
+    //      which would flip the line to LTR base direction and reverse it.
     const paraRTL = (text: string, size: number, f: PDFFont) => {
-      const visual = shapeAr(text);
-      const words = visual.split(/[  ]+/).filter(Boolean);
+      const words = bindRtlTokens(text);
       let line = '';
       const flush = () => {
         if (!line) return;
-        const w = f.widthOfTextAtSize(line, size);
-        page.drawText(line, { x: x1 - w, y, size, font: f, color: INK });
+        const shaped = shapeAr(line);
+        const w = f.widthOfTextAtSize(shaped, size);
+        page.drawText(shaped, { x: x1 - w, y, size, font: f, color: INK });
         y -= size * LH;
         line = '';
       };
       for (const word of words) {
         const trial = line ? `${line} ${word}` : word;
-        if (f.widthOfTextAtSize(trial, size) > colW && line) {
+        if (f.widthOfTextAtSize(shapeAr(trial), size) > colW && line) {
           flush();
           line = word;
         } else {
