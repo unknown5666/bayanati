@@ -3,7 +3,7 @@ import { adminDb, requireAdmin } from '@/lib/firebase/admin';
 import { getCrew, getProjectName, updateContract } from '@/lib/crew-db';
 import { buildPlaceholders, generateContractPdf, formatAed } from '@/lib/contract-pdf';
 import { uploadToDrive } from '@/lib/drive';
-import { createSubmission, createTemplateFromPdf } from '@/lib/docuseal';
+import { createSubmission, templateIdForType } from '@/lib/docuseal';
 import { sendContractEmail } from '@/lib/email';
 import { logAudit } from '@/lib/audit';
 import type { ContractType } from '@/lib/types';
@@ -81,15 +81,29 @@ export async function POST(req: Request) {
       updates[type === 'X' ? 'pdfLinkX' : 'pdfLinkY'] = up.webViewLink;
 
       if (mode === 'send') {
-        // Docuseal signing request for this contract.
-        const { templateId } = await createTemplateFromPdf({
-          name: `${crewName} — Contract ${LETTER[type]} (${projectName})`,
-          pdf,
-        });
+        // Docuseal signing request for this contract. The template is prebuilt
+        // once in the Docuseal console (creating one from a PDF via API is a Pro
+        // feature); per-crew terms are pre-filled as read-only fields. Field
+        // names must match the template — see DOCUSEAL_SETUP.md.
+        const templateId = templateIdForType(type);
         const submission = await createSubmission({
           templateId,
           email: crew.personal.email,
           name: crewName,
+          fields: {
+            crew_name: placeholders.CREW_NAME,
+            role: placeholders.ROLE,
+            project: placeholders.PROJECT_NAME,
+            contract: LETTER[type],
+            amount: placeholders.AMOUNT,
+            date_from: placeholders.DATE_FROM,
+            date_to: placeholders.DATE_TO,
+            iban: placeholders.IBAN,
+            emirates_id: placeholders.EMIRATES_ID,
+            passport: placeholders.PASSPORT,
+            nationality: placeholders.NATIONALITY,
+            issued_on: placeholders.TODAY,
+          },
         });
         await adminDb().ref(`docusealIndex/${submission.submissionId}`).set({ crewId, type });
 

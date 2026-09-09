@@ -1,8 +1,16 @@
 # Docuseal Setup (self-hosted, free)
 
-Docuseal handles the actual e-signing. Bayanati creates a template from each
-generated PDF, creates a signing request per crew member, and listens for a
-webhook when they finish.
+Docuseal handles the actual e-signing. You build a reusable contract **template**
+once in the Docuseal console; Bayanati then creates a signing request per crew
+member against that template (pre-filling their terms), and listens for a webhook
+when they finish.
+
+> **Why a prebuilt template?** Creating a template from a PDF via the API
+> (`POST /templates/pdf`) is a Docuseal **Pro** feature — the free/community
+> edition returns `404 … available in Pro Edition`. So instead of turning each
+> generated PDF into a template, Bayanati signs one prebuilt template and fills
+> the per-crew values through the free submissions API. The app still generates
+> and archives the full bilingual PDF to Google Drive as the reference copy.
 
 ---
 
@@ -51,8 +59,49 @@ credentials you standardised on:
 
 Docuseal console → **Settings → API** → copy the API token → `DOCUSEAL_API_KEY`.
 
-The client calls `POST /api/templates/pdf` and `POST /api/submissions` with the
-`X-Auth-Token` header (see `src/lib/docuseal.ts`).
+The client calls `POST /api/submissions` (free) with the `X-Auth-Token` header
+(see `src/lib/docuseal.ts`).
+
+---
+
+## 3b. Build the contract template (once)
+
+Create a fillable template in the Docuseal console — this replaces the Pro-only
+"template from PDF" API call:
+
+1. **Templates → New** → upload a contract document (e.g. the app's generated
+   bilingual PDF, or your own contract file) and open the field editor.
+2. Add a **Signature** field and a **Date** field assigned to the signer role
+   **`Crew`** (bottom of the page). These are what the crew fills in.
+3. (Optional but recommended) Add **text fields** for the per-crew terms and mark
+   them **read-only**. Name them **exactly** as below — Bayanati pre-fills these
+   by name and ignores any it can't find:
+
+   | Field name    | Value filled in            |
+   |---------------|----------------------------|
+   | `crew_name`   | Crew member full name      |
+   | `role`        | Role                       |
+   | `project`     | Project name               |
+   | `contract`    | `A` (contract X) / `B` (Y) |
+   | `amount`      | Fee in AED                 |
+   | `date_from`   | Engagement start           |
+   | `date_to`     | Engagement end             |
+   | `iban`        | Payout IBAN                |
+   | `emirates_id` | Emirates ID                |
+   | `passport`    | Passport number            |
+   | `nationality` | Nationality                |
+   | `issued_on`   | Contract issue date        |
+
+4. Save. The template's **id** is in its URL / details — put it in the app env as
+   `DOCUSEAL_TEMPLATE_ID` (used for both contracts). If contracts A and B need
+   different templates, set `DOCUSEAL_TEMPLATE_ID_X` and `DOCUSEAL_TEMPLATE_ID_Y`
+   instead.
+
+> Arabic values placed in Docuseal text fields may not shape/join correctly
+> (Docuseal renders fields left-to-right). Keep pre-filled fields to Latin/number
+> values (names, amount, IBAN, dates), or bake Arabic terms into the template's
+> static document rather than into fields. The fully-shaped bilingual contract is
+> always available as the app-generated PDF in Drive.
 
 ---
 
@@ -76,19 +125,21 @@ and marks the signature in the DB. The dashboard updates in real time.
 1. Admin clicks **Generate & Send Contracts**.
 2. Server generates `contract_X.pdf` and `contract_Y.pdf`, stores them under
    Drive `.../Contracts/Pending/{CREW}/`.
-3. For each PDF: create a Docuseal template (with a signature + date field near
-   the bottom) and a submission for the crew member. Docuseal's own email is
-   disabled — Bayanati sends one branded email with **both** signing links.
+3. For each contract: create a Docuseal **submission** against the prebuilt
+   template (`DOCUSEAL_TEMPLATE_ID[_X|_Y]`), pre-filling that crew's terms as
+   read-only fields. Docuseal's own email is disabled — Bayanati sends one
+   branded email with **both** signing links.
 4. Crew opens each link, signs. Docuseal fires the webhook per completed form.
 5. Webhook stores the signed PDF in Drive/Signed and flips status
    → `signed_x` / `signed_y` → `both_signed`.
 
-### Adjusting signature placement
-Field positions are page-relative ratios in `src/lib/docuseal.ts`
-(`createTemplateFromPdf`, the `areas` array). Tune `x/y/w/h` (0–1, page 0) if your
-contract layout puts the signature elsewhere.
+### Adjusting signature / field placement
+Field positions live in the **template** you built in the Docuseal console, not
+in code — move the Signature/Date or any pre-filled field there. The app only
+supplies values by field name (`src/lib/docuseal.ts` → `createSubmission`).
 
 ### Arabic contracts
-For exact Arabic fidelity, instead of generating the Arabic PDF you can build a
-Docuseal template directly from the original Arabic PDF (upload it once in the
-Docuseal console, place the fields), and point the flow at that template id.
+The fully-shaped bilingual contract is the app-generated PDF (archived to Drive
+and linked in the email). Because Docuseal renders template fields left-to-right,
+keep pre-filled fields to Latin/number values; put any Arabic wording into the
+template's static document rather than into fields.

@@ -32,41 +32,35 @@ async function api<T>(pathname: string, init: RequestInit): Promise<T> {
 
 const SIGNER_ROLE = 'Crew';
 
-/** Create a Docuseal template from a PDF, with one crew signature field. */
-export async function createTemplateFromPdf(params: {
-  name: string;
-  pdf: Uint8Array;
-}): Promise<{ templateId: number }> {
-  const fileBase64 = Buffer.from(params.pdf).toString('base64');
-  const body = {
-    name: params.name,
-    documents: [
-      {
-        name: params.name,
-        file: fileBase64,
-        fields: [
-          {
-            name: 'Signature',
-            type: 'signature',
-            role: SIGNER_ROLE,
-            // Areas use page-relative ratios (0..1). Bottom band of page 1.
-            areas: [{ x: 0.58, y: 0.86, w: 0.32, h: 0.06, page: 0 }],
-          },
-          {
-            name: 'Date',
-            type: 'date',
-            role: SIGNER_ROLE,
-            areas: [{ x: 0.58, y: 0.93, w: 0.32, h: 0.03, page: 0 }],
-          },
-        ],
-      },
-    ],
-  };
-  const res = await api<{ id: number }>('/templates/pdf', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-  return { templateId: res.id };
+/**
+ * Resolve the reusable Docuseal template to sign for a given contract type.
+ *
+ * Creating a template from a PDF via API (`POST /templates/pdf`) is a Docuseal
+ * PRO feature, so the free/community edition can't do it. Instead the template
+ * is built ONCE in the Docuseal UI (a fillable contract with named fields + a
+ * Crew signature/date), and its id is configured here. Per-crew values are then
+ * pre-filled on each submission (see `createSubmission`).
+ *
+ * Config (env): `DOCUSEAL_TEMPLATE_ID_X` / `DOCUSEAL_TEMPLATE_ID_Y` for the two
+ * contracts, or a single `DOCUSEAL_TEMPLATE_ID` used for both.
+ */
+export function templateIdForType(type: ContractType): number {
+  const perType =
+    type === 'X'
+      ? process.env.DOCUSEAL_TEMPLATE_ID_X
+      : process.env.DOCUSEAL_TEMPLATE_ID_Y;
+  const raw = perType ?? process.env.DOCUSEAL_TEMPLATE_ID;
+  const id = Number(raw);
+  if (!raw || !Number.isInteger(id) || id <= 0) {
+    throw new Error(
+      `No Docuseal template configured for contract ${type}. Build the contract ` +
+        `template once in the Docuseal console, then set DOCUSEAL_TEMPLATE_ID_${type} ` +
+        `(or DOCUSEAL_TEMPLATE_ID for both) in the app environment. Creating a ` +
+        `template from a PDF via API requires Docuseal Pro, so a prebuilt template ` +
+        `is used instead.`,
+    );
+  }
+  return id;
 }
 
 export interface SubmissionResult {
@@ -75,14 +69,25 @@ export interface SubmissionResult {
 }
 
 /**
- * Create a submission for one crew member. We disable Docuseal's own email
- * (send_email: false) and deliver our branded email with both signing links.
+ * Create a submission for one crew member against a prebuilt template. Per-crew
+ * contract values are pre-filled as read-only fields (`fields[]` with
+ * `default_value` + `readonly`), so the crew sees their own terms but can only
+ * edit the signature/date. Field NAMES must match the fields placed in the
+ * template (see DOCUSEAL_SETUP.md); Docuseal ignores names it doesn't find.
+ *
+ * We disable Docuseal's own email (send_email: false) and deliver our branded
+ * email with the signing link(s) instead.
  */
 export async function createSubmission(params: {
   templateId: number;
   email: string;
   name: string;
+  fields?: Record<string, string | undefined>;
 }): Promise<SubmissionResult> {
+  const prefilled = Object.entries(params.fields ?? {})
+    .filter(([, v]) => v != null && v !== '' && v !== '—')
+    .map(([name, value]) => ({ name, default_value: value, readonly: true }));
+
   const submitters = await api<
     Array<{ id: number; submission_id: number; slug: string }>
   >('/submissions', {
@@ -91,7 +96,12 @@ export async function createSubmission(params: {
       template_id: params.templateId,
       send_email: false,
       submitters: [
-        { role: SIGNER_ROLE, email: params.email, name: params.name },
+        {
+          role: SIGNER_ROLE,
+          email: params.email,
+          name: params.name,
+          ...(prefilled.length ? { fields: prefilled } : {}),
+        },
       ],
     }),
   });
