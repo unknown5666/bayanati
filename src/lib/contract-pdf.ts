@@ -92,8 +92,15 @@ export function buildPlaceholders(
 ): ContractPlaceholders {
   const c = crew.contract;
   const amount = type === 'X' ? c.amountX : c.amountY;
+  // Admin overrides win over the value derived from the raw intake record.
+  const o = c.overrides ?? {};
+  const pick = (override: string | undefined, derived: string): string => {
+    const v = override?.trim();
+    return v ? v : derived;
+  };
+  const derivedName = `${crew.personal.firstName} ${crew.personal.lastName}`.trim();
   return {
-    CREW_NAME: `${crew.personal.firstName} ${crew.personal.lastName}`.trim(),
+    CREW_NAME: pick(o.crewName, derivedName || '—'),
     ROLE: c.role ?? '—',
     AMOUNT_X: formatAed(c.amountX),
     AMOUNT_Y: formatAed(c.amountY),
@@ -101,10 +108,10 @@ export function buildPlaceholders(
     DATE_FROM: c.dateFrom ?? '—',
     DATE_TO: c.dateTo ?? '—',
     IBAN: c.iban ?? crew.documents.emiratesId ?? '—',
-    PROJECT_NAME: projectName,
-    EMIRATES_ID: formatEmiratesId(crew.documents.emiratesId),
-    PASSPORT: crew.documents.passport ?? '—',
-    NATIONALITY: crew.personal.nationality ?? '—',
+    PROJECT_NAME: pick(o.projectName, projectName),
+    EMIRATES_ID: pick(o.emiratesId, formatEmiratesId(crew.documents.emiratesId)),
+    PASSPORT: pick(o.passport, crew.documents.passport ?? '—'),
+    NATIONALITY: pick(o.nationality, crew.personal.nationality ?? '—'),
     TODAY: new Date().toLocaleDateString('en-GB'),
   };
 }

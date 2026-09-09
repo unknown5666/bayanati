@@ -12,6 +12,14 @@ async function post<T>(url: string, body: unknown): Promise<T> {
   return data as T;
 }
 
+export interface ContractFieldOverridesPatch {
+  crewName?: string;
+  projectName?: string;
+  emiratesId?: string;
+  passport?: string;
+  nationality?: string;
+}
+
 export interface CrewPatch {
   role?: string;
   amountX?: number;
@@ -20,6 +28,7 @@ export interface CrewPatch {
   dateTo?: string;
   iban?: string;
   projectId?: string;
+  overrides?: ContractFieldOverridesPatch;
 }
 
 export function updateCrew(crewId: string, patch: CrewPatch) {

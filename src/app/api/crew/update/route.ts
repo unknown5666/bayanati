@@ -17,7 +17,13 @@ interface Patch {
   dateTo?: string;
   iban?: string;
   projectId?: string;
+  // Free-text overrides for the values printed on the contract / sent to Docuseal.
+  overrides?: Partial<
+    Record<'crewName' | 'projectName' | 'emiratesId' | 'passport' | 'nationality', string>
+  >;
 }
+
+const OVERRIDE_KEYS = ['crewName', 'projectName', 'emiratesId', 'passport', 'nationality'] as const;
 
 export async function POST(req: Request) {
   let admin;
@@ -55,6 +61,21 @@ export async function POST(req: Request) {
     contractPatch.iban = patch.iban.replace(/\s/g, '').toUpperCase();
   }
   if (patch.projectId !== undefined) projectPatch.projectId = String(patch.projectId);
+
+  if (patch.overrides !== undefined && patch.overrides !== null) {
+    // Merge onto existing overrides; a trimmed-empty value clears that field
+    // (falls back to the derived intake value at generation time).
+    const merged: Record<string, string> = { ...(crew.contract.overrides ?? {}) };
+    for (const key of OVERRIDE_KEYS) {
+      const raw = patch.overrides[key];
+      if (raw === undefined) continue;
+      const value = String(raw).trim().slice(0, 200);
+      if (value) merged[key] = value;
+      else delete merged[key];
+    }
+    // Firebase drops empty objects; store null to clear the map entirely.
+    contractPatch.overrides = Object.keys(merged).length ? merged : null;
+  }
 
   if (Object.keys(contractPatch).length) await updateContract(crewId, contractPatch);
   if (Object.keys(projectPatch).length) {

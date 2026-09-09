@@ -31,6 +31,20 @@ export interface DocumentRefs {
   driveFolder?: string;
 }
 
+/**
+ * Admin overrides for values that are otherwise derived from the crew's intake
+ * data (name, project, IDs, nationality). Lets an admin correct exactly what is
+ * printed on the contract and pre-filled into Docuseal, without altering the raw
+ * intake record. An empty/absent value falls back to the derived source.
+ */
+export interface ContractFieldOverrides {
+  crewName?: string;
+  projectName?: string;
+  emiratesId?: string;
+  passport?: string;
+  nationality?: string;
+}
+
 export interface ContractDetails {
   status: ContractStatus;
   language: Language;
@@ -40,6 +54,8 @@ export interface ContractDetails {
   dateFrom?: string; // dd/mm/yyyy or ISO
   dateTo?: string;
   iban?: string; // AE IBAN
+  // Admin edits to the contract's filled data (see ContractFieldOverrides).
+  overrides?: ContractFieldOverrides;
   sentAt?: number;
   // Google Drive webViewLinks to the generated PDFs (filled on generate OR send,
   // so an admin can review the contracts before sending them out).

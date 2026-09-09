@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Modal } from './Modal';
 import { StatusBadge } from './StatusBadge';
 import type { CrewMember } from '@/lib/types';
@@ -11,6 +11,7 @@ import {
   updateCrew,
   type ContractType,
   type ContractLinks,
+  type CrewPatch,
 } from '@/lib/api-client';
 
 const SCOPES: { key: string; label: string; types: ContractType[] }[] = [
@@ -25,10 +26,33 @@ function maskIban(iban?: string): string {
   return `${'•'.repeat(Math.max(iban.length - 4, 4))} ${last4}`;
 }
 
-function Row({ label, value, dir }: { label: string; value?: string; dir?: 'ltr' }) {
+function initials(first?: string, last?: string): string {
+  return `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase() || '👤';
+}
+
+/** A label/value row; shows a small amber dot when the value was edited by an admin. */
+function Row({
+  label,
+  value,
+  dir,
+  edited,
+}: {
+  label: string;
+  value?: string;
+  dir?: 'ltr';
+  edited?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-      <span className="text-sm text-paper/60">{label}</span>
+      <span className="flex items-center gap-1.5 text-sm text-paper/60">
+        {label}
+        {edited && (
+          <span
+            title="Edited for this contract"
+            className="inline-block h-1.5 w-1.5 rounded-full bg-exposure"
+          />
+        )}
+      </span>
       <span className="text-sm font-medium" dir={dir}>
         {value || '—'}
       </span>
@@ -36,14 +60,21 @@ function Row({ label, value, dir }: { label: string; value?: string; dir?: 'ltr'
   );
 }
 
-type ActiveModal = 'role' | 'amounts' | 'dates' | null;
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-paper/40">
+      {children}
+    </p>
+  );
+}
 
 export function CrewDetails({ crew }: { crew: CrewMember }) {
-  const [modal, setModal] = useState<ActiveModal>(null);
+  const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const c = crew.contract;
+  const o = c.overrides ?? {};
   const [links, setLinks] = useState<ContractLinks>({ X: c.pdfLinkX, Y: c.pdfLinkY });
   const [stampLinks, setStampLinks] = useState<ContractLinks>({
     X: c.stampLinkX,
@@ -52,6 +83,13 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
   const [scopeKey, setScopeKey] = useState('both');
   const scope = SCOPES.find((s) => s.key === scopeKey) ?? SCOPES[2];
   const name = `${crew.personal.firstName} ${crew.personal.lastName}`.trim();
+
+  // Effective values actually printed on the contract (admin override → intake).
+  const effName = o.crewName?.trim() || name;
+  const effNationality = o.nationality?.trim() || crew.personal.nationality;
+  const effEmiratesId = o.emiratesId?.trim() || crew.documents.emiratesId;
+  const effPassport = o.passport?.trim() || crew.documents.passport;
+
   const signedAny =
     crew.signatures.contractX.signed || crew.signatures.contractY.signed;
 
@@ -75,7 +113,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
     try {
       const result = await fn();
       setMsg({ kind: 'ok', text: okText });
-      setModal(null);
+      setEditing(false);
       return result;
     } catch (err) {
       setMsg({ kind: 'err', text: err instanceof Error ? err.message : 'Failed' });
@@ -116,56 +154,100 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
 
   return (
     <div className="grid gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-xl font-bold">{name}</h2>
-          <p className="text-sm text-paper/60">{crew.personal.email}</p>
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-exposure to-brand text-lg font-bold text-ink-950 shadow-lg shadow-brand/20">
+            {initials(crew.personal.firstName, crew.personal.lastName)}
+          </div>
+          <div>
+            <h2 className="text-xl font-bold leading-tight">{name || 'Unnamed crew'}</h2>
+            <p className="text-sm text-paper/60">{crew.personal.email}</p>
+          </div>
         </div>
         <StatusBadge status={c.status} />
       </div>
 
-      <section className="rounded-xl border border-ink-800 divide-y divide-ink-800">
-        <Row label="Phone" value={crew.personal.phone} dir="ltr" />
-        <Row label="Nationality" value={crew.personal.nationality} />
-        <Row label="Date of birth" value={crew.personal.dob} dir="ltr" />
-        <Row label="Emirates ID" value={crew.documents.emiratesId} dir="ltr" />
-        <Row label="Passport" value={crew.documents.passport} dir="ltr" />
-        <Row label="IBAN" value={maskIban(c.iban)} dir="ltr" />
+      {/* Identity & documents */}
+      <section className="overflow-hidden rounded-2xl border border-ink-800 bg-ink-900/40">
+        <SectionLabel>Identity &amp; documents</SectionLabel>
+        <div className="divide-y divide-ink-800">
+          <Row label="Phone" value={crew.personal.phone} dir="ltr" />
+          <Row label="Nationality" value={effNationality} edited={Boolean(o.nationality?.trim())} />
+          <Row label="Date of birth" value={crew.personal.dob} dir="ltr" />
+          <Row
+            label="Emirates ID"
+            value={effEmiratesId}
+            dir="ltr"
+            edited={Boolean(o.emiratesId?.trim())}
+          />
+          <Row
+            label="Passport"
+            value={effPassport}
+            dir="ltr"
+            edited={Boolean(o.passport?.trim())}
+          />
+          <Row label="IBAN" value={maskIban(c.iban)} dir="ltr" />
+          {o.crewName?.trim() && <Row label="Name on contract" value={effName} edited />}
+          {o.projectName?.trim() && (
+            <Row label="Project on contract" value={o.projectName.trim()} edited />
+          )}
+        </div>
       </section>
 
-      <section className="rounded-xl border border-ink-800 divide-y divide-ink-800">
-        <Row label="Role" value={c.role} />
-        <Row
-          label="Amount A"
-          value={c.amountX != null ? `${c.amountX.toLocaleString()} AED` : undefined}
-          dir="ltr"
-        />
-        <Row
-          label="Amount B"
-          value={c.amountY != null ? `${c.amountY.toLocaleString()} AED` : undefined}
-          dir="ltr"
-        />
-        <Row label="Period" value={c.dateFrom && c.dateTo ? `${c.dateFrom} → ${c.dateTo}` : undefined} dir="ltr" />
-        <Row
-          label="Contract A"
-          value={
-            crew.signatures.contractX.signed
-              ? '✓ Signed'
-              : c.signUrlX
-                ? 'Sent · awaiting signature'
-                : 'Not sent'
-          }
-        />
-        <Row
-          label="Contract B"
-          value={
-            crew.signatures.contractY.signed
-              ? '✓ Signed'
-              : c.signUrlY
-                ? 'Sent · awaiting signature'
-                : 'Not sent'
-          }
-        />
+      {/* Contract terms */}
+      <section className="overflow-hidden rounded-2xl border border-ink-800 bg-ink-900/40">
+        <div className="flex items-center justify-between">
+          <SectionLabel>Contract terms</SectionLabel>
+          <button
+            type="button"
+            onClick={() => {
+              setMsg(null);
+              setEditing(true);
+            }}
+            className="mr-3 mt-2 inline-flex items-center gap-1.5 rounded-lg border border-ink-600 px-2.5 py-1 text-xs font-medium text-paper/80 transition hover:border-exposure hover:text-exposure"
+          >
+            ✏️ Edit fields
+          </button>
+        </div>
+        <div className="divide-y divide-ink-800">
+          <Row label="Role" value={c.role} />
+          <Row
+            label="Amount A"
+            value={c.amountX != null ? `${c.amountX.toLocaleString()} AED` : undefined}
+            dir="ltr"
+          />
+          <Row
+            label="Amount B"
+            value={c.amountY != null ? `${c.amountY.toLocaleString()} AED` : undefined}
+            dir="ltr"
+          />
+          <Row
+            label="Period"
+            value={c.dateFrom && c.dateTo ? `${c.dateFrom} → ${c.dateTo}` : undefined}
+            dir="ltr"
+          />
+          <Row
+            label="Contract A"
+            value={
+              crew.signatures.contractX.signed
+                ? '✓ Signed'
+                : c.signUrlX
+                  ? 'Sent · awaiting signature'
+                  : 'Not sent'
+            }
+          />
+          <Row
+            label="Contract B"
+            value={
+              crew.signatures.contractY.signed
+                ? '✓ Signed'
+                : c.signUrlY
+                  ? 'Sent · awaiting signature'
+                  : 'Not sent'
+            }
+          />
+        </div>
       </section>
 
       {msg && (
@@ -178,15 +260,10 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
         </p>
       )}
 
+      {/* Quick links */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        <button className="btn-ghost" onClick={() => setModal('role')}>
-          📋 Assign Role
-        </button>
-        <button className="btn-ghost" onClick={() => setModal('amounts')}>
-          💰 Set Amounts
-        </button>
-        <button className="btn-ghost" onClick={() => setModal('dates')}>
-          📅 Set Dates
+        <button className="btn-primary" onClick={() => { setMsg(null); setEditing(true); }}>
+          ✏️ Edit Contract Fields
         </button>
         {crew.documents.driveFolder && (
           <a
@@ -318,184 +395,234 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
         </section>
       )}
 
-      {/* Modals */}
-      <RoleModal
-        open={modal === 'role'}
-        initial={c.role ?? ''}
+      <FieldsModal
+        open={editing}
+        crew={crew}
         busy={busy}
-        onClose={() => setModal(null)}
-        onSave={(role) => run(() => updateCrew(crew.id, { role }), 'Role saved ✓')}
-      />
-      <AmountsModal
-        open={modal === 'amounts'}
-        initialX={c.amountX}
-        initialY={c.amountY}
-        busy={busy}
-        onClose={() => setModal(null)}
-        onSave={(amountX, amountY) =>
-          run(() => updateCrew(crew.id, { amountX, amountY }), 'Amounts saved ✓')
-        }
-      />
-      <DatesModal
-        open={modal === 'dates'}
-        initialFrom={c.dateFrom ?? ''}
-        initialTo={c.dateTo ?? ''}
-        busy={busy}
-        onClose={() => setModal(null)}
-        onSave={(dateFrom, dateTo) =>
-          run(() => updateCrew(crew.id, { dateFrom, dateTo }), 'Dates saved ✓')
-        }
+        onClose={() => setEditing(false)}
+        onSave={(patch) => run(() => updateCrew(crew.id, patch), 'Contract fields saved ✓')}
       />
     </div>
   );
 }
 
-function RoleModal({
-  open,
-  initial,
-  busy,
-  onClose,
-  onSave,
+// ---------------------------------------------------------------------------
+// Comprehensive contract-field editor
+// ---------------------------------------------------------------------------
+
+function Field({
+  label,
+  hint,
+  children,
 }: {
-  open: boolean;
-  initial: string;
-  busy: boolean;
-  onClose: () => void;
-  onSave: (role: string) => void;
+  label: string;
+  hint?: string;
+  children: ReactNode;
 }) {
-  const [role, setRole] = useState(initial);
   return (
-    <Modal open={open} title="Assign Role" onClose={onClose}>
-      <label className="field-label">Role</label>
-      <input
-        className="field-input"
-        list="role-suggestions"
-        value={role}
-        onChange={(e) => setRole(e.target.value)}
-        placeholder="e.g. Drone Assistant"
-      />
-      <datalist id="role-suggestions">
-        <option value="Drone Assistant" />
-        <option value="Drone Operator" />
-        <option value="Camera Operator" />
-        <option value="Gaffer" />
-        <option value="Production Assistant" />
-        <option value="Sound Engineer" />
-      </datalist>
-      <button
-        className="btn-primary mt-4 w-full"
-        disabled={busy || !role.trim()}
-        onClick={() => onSave(role.trim())}
-      >
-        Save
-      </button>
-    </Modal>
+    <div>
+      <label className="field-label">{label}</label>
+      {children}
+      {hint && <p className="mt-1 text-xs text-paper/45">{hint}</p>}
+    </div>
   );
 }
 
-function AmountsModal({
+function FieldsModal({
   open,
-  initialX,
-  initialY,
+  crew,
   busy,
   onClose,
   onSave,
 }: {
   open: boolean;
-  initialX?: number;
-  initialY?: number;
+  crew: CrewMember;
   busy: boolean;
   onClose: () => void;
-  onSave: (x: number, y: number) => void;
+  onSave: (patch: CrewPatch) => void;
 }) {
-  const [x, setX] = useState(initialX?.toString() ?? '');
-  const [y, setY] = useState(initialY?.toString() ?? '');
-  const valid = Number(x) >= 0 && Number(y) >= 0 && x !== '' && y !== '';
-  return (
-    <Modal open={open} title="Set Amounts (AED)" onClose={onClose}>
-      <div className="grid gap-3">
-        <div>
-          <label className="field-label">Amount X</label>
-          <input
-            className="field-input"
-            type="number"
-            min={0}
-            value={x}
-            onChange={(e) => setX(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="field-label">Amount Y</label>
-          <input
-            className="field-input"
-            type="number"
-            min={0}
-            value={y}
-            onChange={(e) => setY(e.target.value)}
-          />
-        </div>
-      </div>
-      <button
-        className="btn-primary mt-4 w-full"
-        disabled={busy || !valid}
-        onClick={() => onSave(Number(x), Number(y))}
-      >
-        Save
-      </button>
-    </Modal>
-  );
-}
+  const c = crew.contract;
+  const o = c.overrides ?? {};
+  const derivedName = `${crew.personal.firstName} ${crew.personal.lastName}`.trim();
+  const derivedEmiratesId = crew.documents.emiratesId ?? '';
+  const derivedPassport = crew.documents.passport ?? '';
+  const derivedNationality = crew.personal.nationality ?? '';
 
-function DatesModal({
-  open,
-  initialFrom,
-  initialTo,
-  busy,
-  onClose,
-  onSave,
-}: {
-  open: boolean;
-  initialFrom: string;
-  initialTo: string;
-  busy: boolean;
-  onClose: () => void;
-  onSave: (from: string, to: string) => void;
-}) {
-  const [from, setFrom] = useState(initialFrom);
-  const [to, setTo] = useState(initialTo);
-  const valid = from && to && from <= to;
+  // Pre-fill with the effective value; on save, a value equal to the intake
+  // default is stored as blank so it keeps tracking the source.
+  const [name, setName] = useState(o.crewName?.trim() || derivedName);
+  const [role, setRole] = useState(c.role ?? '');
+  const [project, setProject] = useState(o.projectName?.trim() || '');
+  const [amountX, setAmountX] = useState(c.amountX?.toString() ?? '');
+  const [amountY, setAmountY] = useState(c.amountY?.toString() ?? '');
+  const [dateFrom, setDateFrom] = useState(c.dateFrom ?? '');
+  const [dateTo, setDateTo] = useState(c.dateTo ?? '');
+  const [iban, setIban] = useState(c.iban ?? '');
+  const [emiratesId, setEmiratesId] = useState(o.emiratesId?.trim() || derivedEmiratesId);
+  const [passport, setPassport] = useState(o.passport?.trim() || derivedPassport);
+  const [nationality, setNationality] = useState(o.nationality?.trim() || derivedNationality);
+
+  const datesValid = !dateFrom || !dateTo || dateFrom <= dateTo;
+  const ibanClean = iban.replace(/\s/g, '').toUpperCase();
+  const ibanValid = !ibanClean || /^AE\d{21}$/.test(ibanClean);
+  const amountsValid =
+    (amountX === '' || Number(amountX) >= 0) && (amountY === '' || Number(amountY) >= 0);
+  const canSave = datesValid && ibanValid && amountsValid && !busy;
+
+  function submit() {
+    const eq = (a: string, b: string) => a.trim() === b.trim();
+    const patch: CrewPatch = {
+      overrides: {
+        crewName: eq(name, derivedName) ? '' : name.trim(),
+        projectName: project.trim(),
+        emiratesId: eq(emiratesId, derivedEmiratesId) ? '' : emiratesId.trim(),
+        passport: eq(passport, derivedPassport) ? '' : passport.trim(),
+        nationality: eq(nationality, derivedNationality) ? '' : nationality.trim(),
+      },
+    };
+    if (role.trim()) patch.role = role.trim();
+    if (amountX !== '') patch.amountX = Number(amountX);
+    if (amountY !== '') patch.amountY = Number(amountY);
+    if (dateFrom) patch.dateFrom = dateFrom;
+    if (dateTo) patch.dateTo = dateTo;
+    if (ibanClean) patch.iban = ibanClean;
+    onSave(patch);
+  }
+
   return (
-    <Modal open={open} title="Set Dates" onClose={onClose}>
-      <div className="grid gap-3">
-        <div>
-          <label className="field-label">From</label>
+    <Modal open={open} title="Edit contract fields" onClose={onClose}>
+      <p className="-mt-1 mb-4 text-sm text-paper/55">
+        These values are printed on the bilingual contract and pre-filled into the
+        signing request. Leave a document/identity field as-is to keep the crew's
+        submitted value.
+      </p>
+
+      <div className="grid gap-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Name on contract">
+            <input className="field-input" value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="Role">
+            <input
+              className="field-input"
+              list="role-suggestions"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              placeholder="e.g. Drone Assistant"
+            />
+            <datalist id="role-suggestions">
+              <option value="Drone Assistant" />
+              <option value="Drone Operator" />
+              <option value="Camera Operator" />
+              <option value="Gaffer" />
+              <option value="Production Assistant" />
+              <option value="Sound Engineer" />
+            </datalist>
+          </Field>
+        </div>
+
+        <Field label="Project name" hint="Leave blank to use the crew's project name.">
           <input
             className="field-input"
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
+            value={project}
+            onChange={(e) => setProject(e.target.value)}
+            placeholder="Defaults to the project name"
           />
+        </Field>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Amount A — Contract X (AED)">
+            <input
+              className="field-input"
+              type="number"
+              min={0}
+              dir="ltr"
+              value={amountX}
+              onChange={(e) => setAmountX(e.target.value)}
+            />
+          </Field>
+          <Field label="Amount B — Contract Y (AED)">
+            <input
+              className="field-input"
+              type="number"
+              min={0}
+              dir="ltr"
+              value={amountY}
+              onChange={(e) => setAmountY(e.target.value)}
+            />
+          </Field>
         </div>
-        <div>
-          <label className="field-label">To</label>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Start date">
+            <input
+              className="field-input"
+              type="date"
+              dir="ltr"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+            />
+          </Field>
+          <Field label="End date">
+            <input
+              className={`field-input ${!datesValid ? 'field-input-error' : ''}`}
+              type="date"
+              dir="ltr"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+            />
+          </Field>
+        </div>
+        {!datesValid && <p className="-mt-2 field-error">End date must be on or after start date.</p>}
+
+        <Field label="IBAN" hint="UAE IBAN — AE followed by 21 digits.">
+          <input
+            className={`field-input ${!ibanValid ? 'field-input-error' : ''}`}
+            dir="ltr"
+            value={iban}
+            onChange={(e) => setIban(e.target.value)}
+            placeholder="AE________________________"
+          />
+        </Field>
+        {!ibanValid && <p className="-mt-2 field-error">Enter a valid UAE IBAN (AE + 21 digits).</p>}
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Emirates ID">
+            <input
+              className="field-input"
+              dir="ltr"
+              value={emiratesId}
+              onChange={(e) => setEmiratesId(e.target.value)}
+              placeholder="784-YYYY-NNNNNNN-C"
+            />
+          </Field>
+          <Field label="Passport">
+            <input
+              className="field-input"
+              dir="ltr"
+              value={passport}
+              onChange={(e) => setPassport(e.target.value)}
+            />
+          </Field>
+        </div>
+
+        <Field label="Nationality">
           <input
             className="field-input"
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
+            value={nationality}
+            onChange={(e) => setNationality(e.target.value)}
           />
-        </div>
+        </Field>
       </div>
-      {!valid && from && to && (
-        <p className="field-error">End date must be on or after start date.</p>
-      )}
-      <button
-        className="btn-primary mt-4 w-full"
-        disabled={busy || !valid}
-        onClick={() => onSave(from, to)}
-      >
-        Save
-      </button>
+
+      <div className="mt-5 flex gap-2">
+        <button className="btn-ghost flex-1" onClick={onClose} disabled={busy}>
+          Cancel
+        </button>
+        <button className="btn-primary flex-1" disabled={!canSave} onClick={submit}>
+          {busy ? 'Saving…' : 'Save fields'}
+        </button>
+      </div>
     </Modal>
   );
 }
