@@ -14,5 +14,5 @@ Get it from Google Fonts: https://fonts.google.com/noto/specimen/Noto+Naskh+Arab
 
 If the file is missing, English contracts still generate fine; Arabic generation
 throws a clear error telling you to add it. For maximum Arabic fidelity on legal
-documents, prefer uploading the original Arabic PDF to Docuseal as a template
-(see `DOCUSEAL_SETUP.md`) instead of re-typesetting it here.
+documents, prefer typesetting the original Arabic clause text upstream and
+pasting it into `src/lib/contract-templates.ts` rather than re-wrapping it here.

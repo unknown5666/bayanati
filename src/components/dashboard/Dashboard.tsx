@@ -8,7 +8,7 @@ import type { ContractStatus, CrewMember } from '@/lib/types';
 import { StatusBadge, statusLabel } from './StatusBadge';
 import { Modal } from './Modal';
 import { CrewDetails } from './CrewDetails';
-import { stampContracts } from '@/lib/api-client';
+import { checkInbox, stampContracts } from '@/lib/api-client';
 
 const STATUSES: ContractStatus[] = [
   'submitted',
@@ -42,6 +42,30 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
       return next;
     });
   const clearSelection = () => setSelectedIds(new Set());
+
+  const [inboxBusy, setInboxBusy] = useState(false);
+
+  /**
+   * The server already polls the contracts mailbox on a timer; this is the
+   * "check right now" button for when someone is waiting on a scan.
+   */
+  async function onCheckInbox() {
+    setInboxBusy(true);
+    setBulkMsg(null);
+    try {
+      const r = await checkInbox();
+      const parts = [`Checked the contracts mailbox: ${r.scanned} message(s) read`];
+      if (r.filed) parts.push(`${r.filed} signed contract(s) filed`);
+      if (r.rejected) parts.push(`${r.rejected} reply(ies) sent back (pictures, not a scanned PDF)`);
+      if (r.unmatched) parts.push(`${r.unmatched} could not be matched — check your email`);
+      if (!r.filed && !r.rejected && !r.unmatched) parts.push('nothing new to file');
+      setBulkMsg(`${parts.join(' · ')}.`);
+    } catch (err) {
+      setBulkMsg(err instanceof Error ? err.message : 'Inbox check failed');
+    } finally {
+      setInboxBusy(false);
+    }
+  }
 
   async function onBulkStamp() {
     const ids = [...selectedIds];
@@ -97,6 +121,14 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
         </div>
         <div className="flex items-center gap-3 text-sm">
           <span className="hidden text-paper/60 sm:inline">{adminEmail}</span>
+          <button
+            className="btn-ghost px-3 py-2"
+            onClick={onCheckInbox}
+            disabled={inboxBusy}
+            title="Check the contracts mailbox now for replies with signed scans (it is also checked automatically)"
+          >
+            {inboxBusy ? 'Checking…' : '📥 Check inbox'}
+          </button>
           <button className="btn-ghost px-3 py-2" onClick={() => signOut(firebaseAuth())}>
             Sign out
           </button>

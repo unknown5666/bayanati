@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { Modal } from './Modal';
 import { StatusBadge } from './StatusBadge';
-import type { CrewMember } from '@/lib/types';
+import type { CrewMember, SignatureRecord } from '@/lib/types';
 import {
   generateContracts,
   sendContracts,
@@ -60,6 +60,46 @@ function Row({
   );
 }
 
+const METHOD_LABELS: Record<string, string> = {
+  online: 'signed on their phone',
+  email_reply: 'scan received by email',
+  manual: 'uploaded by an admin',
+};
+
+function methodLabel(method?: string): string {
+  return method ? (METHOD_LABELS[method] ?? method) : 'signed';
+}
+
+/** One line summarising where a single contract has got to. */
+function contractState(sig: SignatureRecord | undefined, signUrl?: string): string {
+  if (sig?.signed) return `✓ Signed — ${methodLabel(sig.method)}`;
+  return signUrl ? 'Emailed · awaiting signature' : 'Not sent';
+}
+
+/** Copies a signing link to the clipboard, confirming inline. */
+function CopyButton({ value, disabled }: { value: string; disabled?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1800);
+        } catch {
+          // Clipboard blocked (insecure context / permissions) — the Open link
+          // next to this button still gives the admin the URL.
+        }
+      }}
+      className="rounded-lg border border-ink-600 px-2.5 py-1 text-xs text-paper/80 transition hover:border-exposure hover:text-exposure disabled:opacity-40"
+    >
+      {copied ? 'Copied ✓' : 'Copy'}
+    </button>
+  );
+}
+
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-paper/40">
@@ -80,6 +120,12 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
     X: c.stampLinkX,
     Y: c.stampLinkY,
   });
+  // One-time signing links — handy to paste into WhatsApp when a crew member
+  // never opens their email.
+  const [signLinks, setSignLinks] = useState<ContractLinks>({
+    X: c.signUrlX,
+    Y: c.signUrlY,
+  });
   const [scopeKey, setScopeKey] = useState('both');
   const scope = SCOPES.find((s) => s.key === scopeKey) ?? SCOPES[2];
   const name = `${crew.personal.firstName} ${crew.personal.lastName}`.trim();
@@ -90,8 +136,9 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
   const effEmiratesId = o.emiratesId?.trim() || crew.documents.emiratesId;
   const effPassport = o.passport?.trim() || crew.documents.passport;
 
-  const signedAny =
-    crew.signatures.contractX.signed || crew.signatures.contractY.signed;
+  const signedAny = Boolean(
+    crew.signatures?.contractX?.signed || crew.signatures?.contractY?.signed,
+  );
 
   // Ready = shared fields present, plus the amount for each selected contract.
   const ready =
@@ -134,9 +181,10 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
   async function onSend() {
     const res = await run(
       () => sendContracts(crew.id, scope.types),
-      `${scope.label} ${alreadySent ? 're-sent' : 'sent'} to the crew member (separate email each) ✓`,
+      `${scope.label} ${alreadySent ? 're-sent' : 'emailed'} with the PDF attached ✓`,
     );
     if (res?.links) setLinks((prev) => ({ ...prev, ...res.links }));
+    if (res?.signLinks) setSignLinks((prev) => ({ ...prev, ...res.signLinks }));
   }
 
   async function onStamp() {
@@ -229,23 +277,11 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
           />
           <Row
             label="Contract A"
-            value={
-              crew.signatures.contractX.signed
-                ? '✓ Signed'
-                : c.signUrlX
-                  ? 'Sent · awaiting signature'
-                  : 'Not sent'
-            }
+            value={contractState(crew.signatures?.contractX, c.signUrlX)}
           />
           <Row
             label="Contract B"
-            value={
-              crew.signatures.contractY.signed
-                ? '✓ Signed'
-                : c.signUrlY
-                  ? 'Sent · awaiting signature'
-                  : 'Not sent'
-            }
+            value={contractState(crew.signatures?.contractY, c.signUrlY)}
           />
         </div>
       </section>
@@ -313,6 +349,75 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
         </section>
       )}
 
+      {/* Live signing links. The crew member got these by email; copying one
+          lets an admin re-send it over WhatsApp without re-issuing the email. */}
+      {(signLinks.X || signLinks.Y) && (
+        <section className="rounded-xl border border-ink-800 divide-y divide-ink-800">
+          <p className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-paper/50">
+            Signing links (phone)
+          </p>
+          {(['X', 'Y'] as ContractType[]).map((type) => {
+            const url = signLinks[type];
+            if (!url) return null;
+            const signed =
+              type === 'X'
+                ? crew.signatures?.contractX?.signed
+                : crew.signatures?.contractY?.signed;
+            return (
+              <div key={type} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <span className="text-sm font-medium">
+                  ✍️ Contract {type === 'X' ? 'A' : 'B'}
+                  {signed && <span className="ml-2 text-xs text-green-400">signed</span>}
+                </span>
+                <div className="flex shrink-0 gap-2">
+                  <CopyButton value={url} disabled={signed} />
+                  <a
+                    className="rounded-lg border border-ink-600 px-2.5 py-1 text-xs text-paper/80 hover:border-exposure hover:text-exposure"
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open ↗
+                  </a>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
+
+      {/* Signed copies, filed automatically however they arrived. */}
+      {signedAny && (
+        <section className="rounded-xl border border-ink-800 divide-y divide-ink-800">
+          <p className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-paper/50">
+            Signed contracts
+          </p>
+          {(['X', 'Y'] as ContractType[]).map((type) => {
+            const sig =
+              type === 'X' ? crew.signatures?.contractX : crew.signatures?.contractY;
+            if (!sig?.signed) return null;
+            return (
+              <a
+                key={type}
+                className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm hover:bg-ink-800"
+                href={sig.driveLink ?? '#'}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <span>
+                  <span className="font-medium">✅ Contract {type === 'X' ? 'A' : 'B'}</span>
+                  <span className="ml-2 text-xs text-paper/50">
+                    {methodLabel(sig.method)}
+                    {sig.timestamp ? ` · ${new Date(sig.timestamp).toLocaleDateString()}` : ''}
+                  </span>
+                </span>
+                <span className="shrink-0 text-paper/50">View ↗</span>
+              </a>
+            );
+          })}
+        </section>
+      )}
+
       {/* Which contract(s) to act on. Every PDF is bilingual (EN | AR). */}
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm text-paper/60">Apply to</span>
@@ -345,11 +450,15 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
           className="btn-primary w-full"
           disabled={busy || !ready}
           onClick={onSend}
-          title={ready ? 'Generate, create signing request(s) and email — one email per contract' : 'Set role, amount(s), dates and IBAN first'}
+          title={
+            ready
+              ? 'Email each contract separately: the PDF attached, plus a link to sign on a phone'
+              : 'Set role, amount(s), dates and IBAN first'
+          }
         >
           {busy
             ? 'Working…'
-            : `${alreadySent ? '🔄 Resend' : '✉️ Send'} ${scope.key === 'both' ? 'A+B' : scope.key}`}
+            : `${alreadySent ? '🔄 Resend' : '✉️ Email'} ${scope.key === 'both' ? 'A+B' : scope.key} for signature`}
         </button>
       </div>
       {!ready && (

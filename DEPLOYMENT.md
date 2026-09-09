@@ -65,18 +65,33 @@ The app creates the `Projects/{PROJECT}/Crew|Contracts/...` subfolders on demand
 
 ---
 
-## 3. Docuseal (self-hosted)
+## 3. Email — the whole signing flow runs on it
 
-See **DOCUSEAL_SETUP.md**. You'll end up with `DOCUSEAL_BASE_URL`,
-`DOCUSEAL_API_KEY`, and a `DOCUSEAL_WEBHOOK_SECRET` in `.env.local`.
+Contracts are emailed with the PDF attached; crew either sign on their phone or
+reply with a scanned PDF, which the app files automatically. So the app needs the
+mailbox **both ways**.
 
----
-
-## 4. Email (SMTP)
-
-Any SMTP account works. For a Hostinger mailbox:
+**Sending (SMTP).** Any SMTP account works. For a Hostinger mailbox:
 `SMTP_HOST=smtp.hostinger.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`,
 `SMTP_USER`/`SMTP_PASS` = the mailbox, `EMAIL_FROM="Over Exposure Productions <crew@yourdomain>"`.
+
+**Receiving (IMAP).** The app watches the same mailbox for replies. On Hostinger
+the IMAP host is the SMTP host with `smtp.` swapped for `imap.`, and the app
+works that out on its own — so if the mailbox that sends is the mailbox that
+receives, **there is nothing more to set**. Override only if they differ:
+`IMAP_HOST`, `IMAP_PORT` (993), `IMAP_USER`, `IMAP_PASS`, `IMAP_MAILBOX`.
+
+Two optional knobs:
+
+- `INBOX_POLL_INTERVAL_MINUTES` — how often the running app checks (default 5).
+  Set it to `0` if you would rather drive the check from cron.
+- `INBOX_POLL_SECRET` — lets a cron job trigger a check without logging in:
+  `curl -s "https://<your-app>/api/inbox/poll?key=<secret>"`. Worth setting even
+  when the built-in timer is on, as a manual fallback.
+
+> **Use a mailbox nobody reads by hand.** The app marks replies it has handled as
+> read and (if `IMAP_PROCESSED_MAILBOX` is set) moves them aside. A shared inbox
+> that people also work in is fine, but expect it to tidy itself.
 
 ---
 
@@ -107,8 +122,10 @@ into the client bundle). Set them in your host's environment settings.
 
 ### After first deploy
 - Add your deployed origin to **Firebase Auth → Settings → Authorized domains**.
-- Set the Docuseal webhook URL to `https://<your-app>/api/webhook/docuseal`
-  (DOCUSEAL_SETUP.md).
+- Check `NEXT_PUBLIC_APP_URL` is the live origin — the signing links in every
+  contract email are built from it, so a wrong value sends crew to a dead page.
+- Watch the app log for `[inbox] watching the contracts mailbox every 5 min`.
+  If instead it says polling is off, the IMAP credentials are missing.
 
 ---
 
@@ -131,8 +148,15 @@ git push -u origin main
 ## Smoke test the full flow
 
 1. `/crew/form` → submit a test crew member (use a mailbox you control).
-2. Dashboard → open the crew → set **Role**, **Amounts**, **Dates** → **Generate
-   & Send Contracts**.
-3. Check the email (two signing buttons), sign both in Docuseal.
-4. Watch the dashboard flip to **Both Signed** and the signed PDFs appear under
+2. Dashboard → open the crew → **Edit contract fields** → set Role, Amounts,
+   Dates and IBAN → **Email A+B for signature**.
+3. Two emails arrive, each with its contract attached and its own reference.
+4. **Phone route:** open "Review & sign the contract" on a phone, draw a
+   signature, submit. Within seconds the dashboard shows *Signed — signed on
+   their phone* and the signed PDF is in
    `Projects/{PROJECT}/Contracts/Signed/{CREW}` in Drive.
+5. **Scan route:** print the other contract, sign it, scan it to PDF and reply to
+   that email leaving the subject alone. Within the poll interval (or straight
+   away via **Check inbox**) it is filed the same way.
+6. **The rejection path:** reply to a contract email with a *photo* instead. You
+   should get the "only a scanned PDF is accepted" reply, and nothing is filed.

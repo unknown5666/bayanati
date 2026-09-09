@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/firebase/admin';
 import { getCrew, getProjectName, updateContract } from '@/lib/crew-db';
-import { downloadSubmissionPdf } from '@/lib/docuseal';
-import { uploadToDrive } from '@/lib/drive';
+import { downloadFromDrive, uploadToDrive } from '@/lib/drive';
 import { applyStampToPdf, loadStampPng } from '@/lib/stamp';
 import { logAudit } from '@/lib/audit';
 import type { ContractType } from '@/lib/types';
@@ -12,8 +11,8 @@ export const maxDuration = 60;
 
 // Admin-only: apply the company stamp to the SIGNED contract PDFs of one or
 // more crew members. Accepts { crewId } or { crewIds: [...] } (for bulk). For
-// each crew, every already-signed contract (X→A, Y→B) is re-fetched from
-// Docuseal, stamped bottom-left, and re-uploaded to Drive under Signed/.
+// each crew, every already-signed contract (X→A, Y→B) is fetched back from
+// Drive, stamped bottom-left, and re-uploaded under Signed/.
 
 export async function POST(req: Request) {
   let admin;
@@ -69,17 +68,12 @@ export async function POST(req: Request) {
       let stampedCount = 0;
 
       for (const type of ['X', 'Y'] as ContractType[]) {
-        const signed =
-          type === 'X'
-            ? crew.signatures.contractX.signed
-            : crew.signatures.contractY.signed;
-        const subId =
-          type === 'X'
-            ? crew.contract.docusealSubmissionX
-            : crew.contract.docusealSubmissionY;
-        if (!signed || subId == null) continue;
+        const signature =
+          type === 'X' ? crew.signatures?.contractX : crew.signatures?.contractY;
+        // The signed copy filed in Drive — by whichever route it was signed.
+        if (!signature?.signed || !signature.driveFileId) continue;
 
-        const signedPdf = await downloadSubmissionPdf(Number(subId));
+        const signedPdf = await downloadFromDrive(signature.driveFileId);
         const stamped = await applyStampToPdf(new Uint8Array(signedPdf), stampPng);
         const letter = type === 'X' ? 'A' : 'B';
         const up = await uploadToDrive({
@@ -93,7 +87,11 @@ export async function POST(req: Request) {
       }
 
       if (stampedCount === 0) {
-        results.push({ crewId, ok: false, error: 'no signed contracts to stamp' });
+        results.push({
+          crewId,
+          ok: false,
+          error: 'no signed contract on file to stamp',
+        });
         continue;
       }
 

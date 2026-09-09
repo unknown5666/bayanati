@@ -27,8 +27,19 @@
       ".read": "auth != null && auth.token.admin === true"
     },
 
-    "docusealIndex": {
-      ".read": "auth != null && auth.token.admin === true"
+    "signTokens": {
+      ".read": false,
+      ".write": false
+    },
+
+    "signRefs": {
+      ".read": false,
+      ".write": false
+    },
+
+    "inboxProcessed": {
+      ".read": false,
+      ".write": false
     }
   }
 }

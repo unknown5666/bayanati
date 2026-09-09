@@ -98,6 +98,16 @@ export async function uploadToDrive(params: {
   };
 }
 
+/** Download a Drive file's bytes by id (the PDF we generated and emailed). */
+export async function downloadFromDrive(fileId: string): Promise<Buffer> {
+  const drive = driveClient();
+  const res = await drive.files.get(
+    { fileId, alt: 'media' },
+    { responseType: 'arraybuffer' },
+  );
+  return Buffer.from(res.data as ArrayBuffer);
+}
+
 /** Fetch a URL (e.g. Firebase Storage download link) into a Buffer. */
 export async function fetchToBuffer(url: string): Promise<{ data: Buffer; contentType: string }> {
   const res = await fetch(url);

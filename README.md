@@ -1,13 +1,16 @@
 # Bayanati — Crew Management & Contract Automation
 
 Crew intake + contract automation for **Over Exposure Productions**.
-Forms → Firebase → auto-generated PDF contracts → Docuseal e-signatures → Google Drive.
+Forms → Firebase → auto-generated PDF contracts → emailed for signature →
+signed copies filed in Google Drive.
 
 - **Frontend/API:** Next.js 14 (App Router, TypeScript, Tailwind)
-- **Backend:** Firebase (Realtime Database, Auth, Storage) via the Admin SDK
-- **E-signatures:** self-hosted Docuseal
+- **Backend:** Firebase (Realtime Database + Auth) via the Admin SDK
+- **Signatures:** in-house. Each contract is emailed with the PDF attached and a
+  one-time link to sign on a phone; a crew member who prefers paper prints it,
+  signs, scans and replies, and the app files the scan itself.
 - **Storage of record:** Google Drive
-- **Email:** SMTP (Nodemailer)
+- **Email:** SMTP out (Nodemailer) + IMAP in (ImapFlow) — the same mailbox
 
 Everything runs on free tiers. Mobile-first, bilingual (Arabic / English, RTL-aware).
 
@@ -22,12 +25,14 @@ Everything runs on free tiers. Mobile-first, bilingual (Arabic / English, RTL-aw
 | Admin login (Google + email/password) | `/auth/login` | ✅ |
 | Admin dashboard (live stats, filters, cards/table) | `/crew/dashboard` | ✅ |
 | Crew details + actions (role, amounts, dates, send) | dashboard modal | ✅ |
-| Post-submit Drive sync | `POST /api/crew/after-submit` | ✅ |
 | Admin field updates | `POST /api/crew/update` | ✅ |
-| Contract generation + Docuseal + email | `POST /api/contracts/generate` | ✅ |
-| Docuseal signed-webhook handler | `POST /api/webhook/docuseal` | ✅ |
+| Generate + email contracts (PDF attached) | `POST /api/contracts/generate` | ✅ |
+| Crew signing page (phone signature) | `/sign/{token}` | ✅ |
+| Signature submit / contract preview | `POST /api/sign/{token}`, `GET /api/sign/{token}/pdf` | ✅ |
+| Watch the mailbox for signed scans | `POST /api/inbox/poll` | ✅ |
+| Company stamp on signed copies | `POST /api/contracts/stamp` | ✅ |
 | Session / admin-claim grant | `POST /api/auth/session` | ✅ |
-| Security rules (DB + Storage) | `database.rules.json`, `storage.rules` | ✅ |
+| Security rules (Realtime DB) | `database.rules.json` | ✅ |
 
 ### Validation
 - Email, UAE phone (`+971…`), passport (6–10 alphanumerics)
@@ -48,19 +53,45 @@ reassigns a project.
 /crew/{crewId}
   id, projectId, createdAt, updatedAt
   personal   { firstName, lastName, email, phone, nationality, dob }
-  documents  { emiratesId, passport, emiratesIdFront|Back, passportImage (Storage paths), driveFolder }
+  documents  { emiratesId, passport, emiratesIdFront|Back, passportImage (Drive links), driveFolder }
   contract   { status, language, role, amountX, amountY, dateFrom, dateTo, iban,
-               sentAt, docusealSubmissionX|Y, signUrlX|Y }
-  signatures { contractX {signed,timestamp,driveLink}, contractY {…} }
+               overrides, sentAt, pdfLinkX|Y, pdfFileIdX|Y,
+               signUrlX|Y, signTokenX|Y, signRefX|Y, stampLinkX|Y }
+  signatures { contractX {signed,timestamp,driveLink,driveFileId,method,signerName},
+               contractY {…} }
 /projects/{projectId}   { id, name, createdAt }
-/contracts/{contractId} (optional flat index; primary state lives on /crew)
-/docusealIndex/{submissionId} { crewId, type }   ← webhook lookup
+/signTokens/{token}     { crewId, type, ref, expiresAt, used }  ← the signing link
+/signRefs/{OEP-XXXXXX}  { crewId, type, token }                 ← matches replies
+/inboxProcessed/{hash}  { at, from, subject, outcome }           ← reply de-dupe
 /audit/{autoId}         { action, actor, crewId, projectId, detail, timestamp }
 ```
 
 `crewId = sanitised(email) + "_" + timestamp`.
 
 Status flow: `submitted → (admin sets role/amounts/dates) → sent → signed_x/signed_y → both_signed`.
+
+## How a contract gets signed
+
+1. An admin fills in role, amounts, dates and IBAN, then hits **Email for
+   signature**. Each contract goes out as its own email: the bilingual PDF
+   attached, a one-time signing link, and a short reference like `OEP-7KX4Q2` in
+   the subject.
+2. **On a phone** — the link opens `/sign/{token}`, where the crew member reads
+   the PDF, draws a signature with their finger, types their name and confirms.
+   The drawing is stamped into the signature box of the very PDF that was
+   emailed, along with an attestation line (name, time, IP, reference), and the
+   signed copy is filed in Drive.
+3. **On paper** — they print, sign, scan and reply. `src/lib/inbox.ts` reads the
+   mailbox (every 5 minutes by default, or on demand from the dashboard's
+   **Check inbox** button), matches the reply by its reference, and files the
+   scan the same way.
+4. Either route marks the contract signed, emails the crew member a copy and
+   notifies the admins. The signing token is single-use and burnt on the way.
+
+**Only a real PDF is accepted as a signed contract.** The magic bytes are
+checked, not the filename, so a photo — even one renamed `contract.pdf` — is
+refused, and the sender gets a bilingual reply explaining they need to send a
+scan. This is stated up front in the contract email itself.
 
 ---
 
@@ -79,9 +110,9 @@ npm run typecheck
 npm run build
 ```
 
-You need real Firebase + Google + Docuseal + SMTP credentials for the full flow.
-See **DEPLOYMENT.md** for the step-by-step service setup, and **DOCUSEAL_SETUP.md**
-for the e-signature side.
+You need real Firebase, Google Drive and mailbox credentials for the full flow.
+See **DEPLOYMENT.md** for the step-by-step service setup — in particular the
+IMAP side, which is what lets an emailed scan file itself.
 
 ---
 
@@ -98,23 +129,30 @@ placeholder names intact:
 Two PDFs are generated per crew member: **Contract X** (amount X) and
 **Contract Y** (amount Y). `{AMOUNT}` resolves to whichever variant is rendering.
 
-**Arabic PDFs** need `src/assets/fonts/NotoNaskhArabic-Regular.ttf`
-(see `src/assets/fonts/README.md`). For legal-grade Arabic fidelity, prefer a
-Docuseal template built from the original Arabic PDF.
+**Arabic PDFs** use the embedded Amiri face in `src/assets/fonts/`
+(see `src/assets/fonts/README.md`).
+
+The dashed **signature box** printed on page 1 is `SIGNATURE_BOX` in
+`src/lib/contract-pdf.ts`. `src/lib/sign-pdf.ts` writes into exactly that box, so
+an online signature and a pen signature land in the same place — move one and the
+other follows.
 
 ---
 
 ## Security notes
 
 - Admin access = email in `ADMIN_EMAILS`. On first login a whitelisted user is
-  granted the `admin` custom claim (`/api/auth/session`), which the DB/Storage
-  rules check. Optionally pre-grant with `node --env-file=.env.local scripts/set-admin.mjs`.
+  granted the `admin` custom claim (`/api/auth/session`), which the DB rules
+  check. Optionally pre-grant with `node --env-file=.env.local scripts/set-admin.mjs`.
 - Realtime DB: crew can only *create* their own node (status `submitted`); reads
   and all edits require the admin claim. Server writes use the Admin SDK and
   bypass rules.
-- Storage: anyone may upload a valid image at intake; only admins can read them.
-  The server reads uploads via the Admin SDK (no public read).
-- IBAN is masked in the UI (last 4 shown). ID images live in Storage/Drive, not
-  in the DB.
+- Signing links: a `/sign/{token}` URL carries a 32-byte random token and is the
+  only authorisation that page needs — there is no login, because crew members
+  have no account. Tokens are single-use, expire after 120 days, are burnt as
+  soon as a contract is signed by any route, and are re-issued (invalidating the
+  old one) whenever a contract is re-sent. `/signTokens` and `/signRefs` are
+  server-only in the DB rules.
+- IBAN is masked in the UI (last 4 shown). ID images live in Drive, not in the DB.
 - `.env.local` and service-account JSON are git-ignored — never commit secrets.
 ```

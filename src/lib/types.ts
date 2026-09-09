@@ -5,7 +5,7 @@ export type Language = 'ar' | 'en';
 export type ContractStatus =
   | 'submitted' // crew filled the intake form; no contract yet
   | 'pending' // admin is preparing (role/amounts/dates being set)
-  | 'sent' // contracts generated + emailed via Docuseal
+  | 'sent' // contracts generated and emailed for signature
   | 'signed_x' // only contract X signed
   | 'signed_y' // only contract Y signed
   | 'both_signed';
@@ -34,8 +34,7 @@ export interface DocumentRefs {
 /**
  * Admin overrides for values that are otherwise derived from the crew's intake
  * data (name, project, IDs, nationality). Lets an admin correct exactly what is
- * printed on the contract and pre-filled into Docuseal, without altering the raw
- * intake record. An empty/absent value falls back to the derived source.
+ * printed on the contract, without altering the raw intake record. An empty/absent value falls back to the derived source.
  */
 export interface ContractFieldOverrides {
   crewName?: string;
@@ -61,22 +60,41 @@ export interface ContractDetails {
   // so an admin can review the contracts before sending them out).
   pdfLinkX?: string;
   pdfLinkY?: string;
+  // Drive file ids of the same PDFs, so the server can fetch the exact bytes
+  // that were emailed when it comes time to apply a signature or a stamp.
+  pdfFileIdX?: string;
+  pdfFileIdY?: string;
   generatedAt?: number;
-  // Docuseal submission ids so we can reconcile webhook events.
-  docusealSubmissionX?: string;
-  docusealSubmissionY?: string;
+  // Self-hosted signing: a one-time token behind {APP_URL}/sign/{token} and the
+  // short reference printed in the email subject (used to match a crew member's
+  // emailed reply back to the right contract).
   signUrlX?: string;
   signUrlY?: string;
+  signTokenX?: string;
+  signTokenY?: string;
+  signRefX?: string;
+  signRefY?: string;
   // Stamped (company seal applied) signed PDFs, filled by /api/contracts/stamp.
   stampLinkX?: string;
   stampLinkY?: string;
   stampedAt?: number;
 }
 
+/** How a signed contract reached us. */
+export type SignatureMethod =
+  | 'online' // signed on the /sign/{token} page (phone or desktop)
+  | 'email_reply' // crew replied to the contract email with a scanned PDF
+  | 'manual'; // an admin uploaded the scan by hand
+
 export interface SignatureRecord {
   signed: boolean;
   timestamp?: number;
   driveLink?: string;
+  driveFileId?: string;
+  method?: SignatureMethod;
+  signerName?: string; // name typed on the signing page
+  signerIp?: string;
+  receivedFrom?: string; // sender address, for email replies
 }
 
 export interface CrewMember {

@@ -17,7 +17,7 @@ interface Patch {
   dateTo?: string;
   iban?: string;
   projectId?: string;
-  // Free-text overrides for the values printed on the contract / sent to Docuseal.
+  // Free-text overrides for the values printed on the contract.
   overrides?: Partial<
     Record<'crewName' | 'projectName' | 'emiratesId' | 'passport' | 'nationality', string>
   >;

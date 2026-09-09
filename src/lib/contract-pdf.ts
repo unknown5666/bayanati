@@ -7,7 +7,7 @@ import 'server-only';
 // Arabic + Latin) and contextual shaping via `arabic-reshaper` (pdf-lib does no
 // bidi), with a run-based visual reorder. This is good for a working bilingual
 // doc; embedded Latin identifiers in the Arabic column can still order
-// imperfectly — for pixel-exact legal Arabic, use a Docuseal Arabic template.
+// imperfectly — for pixel-exact legal Arabic, typeset the clause text upstream.
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -294,8 +294,7 @@ async function embedArabicFont(pdf: PDFDocument): Promise<PDFFont> {
   } catch {
     throw new Error(
       `Arabic contract font not found at ${fontPath}. Add Amiri-Regular.ttf ` +
-        '(Google Fonts, OFL) into src/assets/fonts/, or generate Arabic ' +
-        'contracts via a Docuseal template instead.',
+        '(Google Fonts, OFL) into src/assets/fonts/ and redeploy.',
     );
   }
   // subset:false — subsetting Amiri drops most Arabic glyphs (renders near-blank),
@@ -309,6 +308,21 @@ const A4 = { w: 595.28, h: 841.89 };
 const MARGIN = 42;
 const GUTTER = 18; // gap between the two language columns
 const DIVIDER = rgb(0.8, 0.8, 0.82);
+
+/**
+ * Where the crew member's signature goes on page 1 (PDF points, origin at the
+ * bottom-left). `y` is the ruled line itself; a signature drawn on a phone is
+ * placed in the `height`-tall box sitting on top of it. `sign-pdf.ts` writes
+ * into exactly this box, and the generator draws the same box as a dashed
+ * "sign here" hint — so the online signature and a pen signature land in the
+ * same place.
+ */
+export const SIGNATURE_BOX = {
+  x: A4.w - MARGIN - 200,
+  y: MARGIN + 84,
+  width: 200,
+  height: 46,
+} as const;
 
 export interface GenerateOptions {
   // `type` only affects which AMOUNT the placeholders already carry; the PDF
@@ -487,7 +501,7 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
 
   // ---- Signature band (bilingual) ----
   // First Party (company, stamp goes here on the signed copy) on the left;
-  // Second Party (crew) signature on the right — matching the Docuseal field.
+  // Second Party (crew) signature on the right — see SIGNATURE_BOX.
   const bandY = sigTop;
 
   // Left: First Party / الطرف الأول
@@ -507,8 +521,35 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
     color: GREY,
   });
 
-  // Right: crew signature line + bilingual label + date.
-  const sigLineX0 = rightX1 - 200;
+  // Right: crew signature box + line + bilingual label + date. The dashed box
+  // is where an online signature is drawn (see SIGNATURE_BOX / sign-pdf.ts) and
+  // tells anyone printing the contract exactly where to sign by hand.
+  const sigLineX0 = SIGNATURE_BOX.x;
+  page.drawRectangle({
+    x: SIGNATURE_BOX.x,
+    y: SIGNATURE_BOX.y,
+    width: SIGNATURE_BOX.width,
+    height: SIGNATURE_BOX.height,
+    borderColor: DIVIDER,
+    borderWidth: 0.75,
+    borderDashArray: [3, 3],
+  });
+  const hint = 'Sign here';
+  page.drawText(hint, {
+    x: SIGNATURE_BOX.x + 6,
+    y: SIGNATURE_BOX.y + SIGNATURE_BOX.height - 11,
+    size: 7,
+    font: latin,
+    color: DIVIDER,
+  });
+  const hintAr = shapeAr('وقّع هنا');
+  page.drawText(hintAr, {
+    x: SIGNATURE_BOX.x + SIGNATURE_BOX.width - 6 - arabic.widthOfTextAtSize(hintAr, 7),
+    y: SIGNATURE_BOX.y + SIGNATURE_BOX.height - 11,
+    size: 7,
+    font: arabic,
+    color: DIVIDER,
+  });
   page.drawLine({
     start: { x: sigLineX0, y: bandY + 2 },
     end: { x: rightX1, y: bandY + 2 },

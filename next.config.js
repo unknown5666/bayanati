@@ -2,9 +2,19 @@
 const nextConfig = {
   reactStrictMode: true,
   experimental: {
-    // firebase-admin, googleapis and nodemailer are server-only; keep them external
-    // so the App Router bundler does not try to pull them into the client bundle.
-    serverComponentsExternalPackages: ['firebase-admin', 'googleapis', 'nodemailer'],
+    // firebase-admin, googleapis, nodemailer, imapflow and mailparser are
+    // server-only; keep them external so the App Router bundler does not try to
+    // pull them into the client bundle.
+    serverComponentsExternalPackages: [
+      'firebase-admin',
+      'googleapis',
+      'nodemailer',
+      'imapflow',
+      'mailparser',
+    ],
+    // Enables src/instrumentation.ts, which starts the background poll of the
+    // contracts mailbox (emailed contract scans get filed automatically).
+    instrumentationHook: true,
   },
   images: {
     remotePatterns: [
@@ -28,6 +38,8 @@ const nextConfig = {
       { source: '/auth/login', headers: noStore },
       { source: '/crew/dashboard', headers: noStore },
       { source: '/crew/form', headers: noStore },
+      // Per-token signing pages must never be cached or indexed.
+      { source: '/sign/:token', headers: [...noStore, { key: 'X-Robots-Tag', value: 'noindex, nofollow' }] },
     ];
   },
 };

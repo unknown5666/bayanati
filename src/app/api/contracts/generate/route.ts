@@ -1,21 +1,25 @@
 import { NextResponse } from 'next/server';
-import { adminDb, requireAdmin } from '@/lib/firebase/admin';
+import { requireAdmin } from '@/lib/firebase/admin';
 import { getCrew, getProjectName, updateContract } from '@/lib/crew-db';
 import { buildPlaceholders, generateContractPdf, formatAed } from '@/lib/contract-pdf';
 import { uploadToDrive } from '@/lib/drive';
-import { createSubmission, templateIdForType } from '@/lib/docuseal';
+import { createSignToken, revokeSignToken, signUrlFor } from '@/lib/sign-tokens';
 import { sendContractEmail } from '@/lib/email';
 import { logAudit } from '@/lib/audit';
 import type { ContractType } from '@/lib/types';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60; // PDF + Docuseal + email can take a few seconds
+export const maxDuration = 60; // PDF + Drive + email can take a few seconds
 
 // Admin-only. Every PDF is bilingual (English | Arabic). Body:
 //   mode:  'generate' — build the selected PDFs, store in Drive, return links.
-//          'send'     — additionally create a Docuseal request and email EACH
-//                       selected contract SEPARATELY (one email per contract).
+//          'send'     — additionally email EACH selected contract SEPARATELY,
+//                       with the PDF attached and a one-time signing link.
 //   types: ['X'] | ['Y'] | ['X','Y']  — which contracts to act on (default both).
+//
+// Signing is self-hosted: each sent contract gets a token (behind /sign/{token})
+// and a short reference printed in the subject, so a crew member can either sign
+// on their phone or reply with a scan — see src/lib/sign-tokens.ts.
 
 const LETTER: Record<ContractType, 'A' | 'B'> = { X: 'A', Y: 'B' };
 
@@ -53,6 +57,7 @@ export async function POST(req: Request) {
   if (!c.iban) missing.push('iban');
   if (types.includes('X') && c.amountX == null) missing.push('amountX');
   if (types.includes('Y') && c.amountY == null) missing.push('amountY');
+  if (mode === 'send' && !crew.personal.email) missing.push('email');
   if (missing.length) {
     return NextResponse.json(
       { error: `Missing required fields: ${missing.join(', ')}` },
@@ -65,63 +70,49 @@ export async function POST(req: Request) {
 
   try {
     const pdfLinks: Partial<Record<ContractType, string>> = {};
+    const signLinks: Partial<Record<ContractType, string>> = {};
     const updates: Record<string, unknown> = { generatedAt: Date.now() };
 
     for (const type of types) {
       const placeholders = buildPlaceholders(crew, type, projectName);
       const pdf = await generateContractPdf({ placeholders });
+      const fileName = `Contract - ${crew.personal.firstName} - ${crew.personal.lastName} - ${LETTER[type]}.pdf`;
 
       const up = await uploadToDrive({
         pathSegments: ['Projects', projectName, 'Contracts', 'Pending', crewName],
-        fileName: `Contract - ${crew.personal.firstName} - ${crew.personal.lastName} - ${LETTER[type]}.pdf`,
+        fileName,
         mimeType: 'application/pdf',
         data: pdf,
       });
       pdfLinks[type] = up.webViewLink;
       updates[type === 'X' ? 'pdfLinkX' : 'pdfLinkY'] = up.webViewLink;
+      updates[type === 'X' ? 'pdfFileIdX' : 'pdfFileIdY'] = up.fileId;
 
       if (mode === 'send') {
-        // Docuseal signing request for this contract. The template is prebuilt
-        // once in the Docuseal console (creating one from a PDF via API is a Pro
-        // feature); per-crew terms are pre-filled as read-only fields. Field
-        // names must match the template — see DOCUSEAL_SETUP.md.
-        const templateId = templateIdForType(type);
-        const submission = await createSubmission({
-          templateId,
-          email: crew.personal.email,
-          name: crewName,
-          fields: {
-            crew_name: placeholders.CREW_NAME,
-            role: placeholders.ROLE,
-            project: placeholders.PROJECT_NAME,
-            contract: LETTER[type],
-            amount: placeholders.AMOUNT,
-            date_from: placeholders.DATE_FROM,
-            date_to: placeholders.DATE_TO,
-            iban: placeholders.IBAN,
-            emirates_id: placeholders.EMIRATES_ID,
-            passport: placeholders.PASSPORT,
-            nationality: placeholders.NATIONALITY,
-            issued_on: placeholders.TODAY,
-          },
-        });
-        await adminDb().ref(`docusealIndex/${submission.submissionId}`).set({ crewId, type });
+        // Re-sending supersedes the previous link: burn the old token so only
+        // the newest email can be used to sign.
+        await revokeSignToken(type === 'X' ? c.signTokenX : c.signTokenY);
+        const token = await createSignToken({ crewId, type });
+        const signUrl = signUrlFor(token.token);
+        signLinks[type] = signUrl;
 
-        updates[type === 'X' ? 'docusealSubmissionX' : 'docusealSubmissionY'] =
-          submission.submissionId;
-        updates[type === 'X' ? 'signUrlX' : 'signUrlY'] = submission.signUrl;
+        updates[type === 'X' ? 'signTokenX' : 'signTokenY'] = token.token;
+        updates[type === 'X' ? 'signRefX' : 'signRefY'] = token.ref;
+        updates[type === 'X' ? 'signUrlX' : 'signUrlY'] = signUrl;
 
-        // A SEPARATE email per contract.
+        // A SEPARATE email per contract, each with its own PDF and reference.
         await sendContractEmail({
           to: crew.personal.email,
-          crewName,
+          crewName: placeholders.CREW_NAME,
           projectName,
           role: c.role!,
           dateFrom: c.dateFrom!,
           dateTo: c.dateTo!,
           amount: formatAed(type === 'X' ? c.amountX : c.amountY),
           contractLabel: LETTER[type],
-          signUrl: submission.signUrl,
+          reference: token.ref,
+          signUrl,
+          pdf: { filename: fileName, content: pdf },
         });
       }
     }
@@ -141,11 +132,11 @@ export async function POST(req: Request) {
       projectId: crew.projectId,
       detail:
         mode === 'send'
-          ? `Sent ${types.map((t) => LETTER[t]).join(', ')} → ${crew.personal.email}`
+          ? `Emailed ${types.map((t) => LETTER[t]).join(', ')} (PDF attached) → ${crew.personal.email}`
           : `Generated ${types.map((t) => LETTER[t]).join(', ')} for review (not sent)`,
     });
 
-    return NextResponse.json({ ok: true, mode, types, links: pdfLinks });
+    return NextResponse.json({ ok: true, mode, types, links: pdfLinks, signLinks });
   } catch (err) {
     console.error('[contracts/generate] error', err);
     await logAudit({

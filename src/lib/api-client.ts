@@ -50,12 +50,19 @@ export function generateContracts(crewId: string, types: ContractType[] = ['X', 
   );
 }
 
-/** Build the selected PDFs, create Docuseal requests, and email EACH separately. */
+/**
+ * Build the selected PDFs and email EACH separately with the PDF attached and a
+ * one-time signing link. `signLinks` are those links, so an admin can also send
+ * one over WhatsApp if the crew member never opens their email.
+ */
 export function sendContracts(crewId: string, types: ContractType[] = ['X', 'Y']) {
-  return post<{ ok: true; mode: 'send'; types: ContractType[]; links: ContractLinks }>(
-    '/api/contracts/generate',
-    { crewId, mode: 'send', types },
-  );
+  return post<{
+    ok: true;
+    mode: 'send';
+    types: ContractType[];
+    links: ContractLinks;
+    signLinks: ContractLinks;
+  }>('/api/contracts/generate', { crewId, mode: 'send', types });
 }
 
 export interface StampResult {
@@ -71,4 +78,30 @@ export function stampContracts(crewIds: string[]) {
   return post<{ ok: boolean; results: StampResult[] }>('/api/contracts/stamp', {
     crewIds,
   });
+}
+
+export interface InboxPollResult {
+  ok: boolean;
+  scanned: number;
+  filed: number;
+  rejected: number;
+  unmatched: number;
+  ignored: number;
+  messages: Array<{
+    from: string;
+    subject: string;
+    outcome: 'filed' | 'rejected' | 'unmatched' | 'ignored';
+    crewId?: string;
+    contract?: 'A' | 'B';
+    note?: string;
+  }>;
+  errors: string[];
+}
+
+/**
+ * Check the contracts mailbox now for replies carrying signed scans. The server
+ * also polls on its own schedule; this is the "don't wait" button.
+ */
+export function checkInbox() {
+  return post<InboxPollResult>('/api/inbox/poll', {});
 }
