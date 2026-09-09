@@ -27,7 +27,11 @@ export const viewport: Viewport = {
   themeColor: '#0a0a0b',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
+  // Pinch-zoom stays available. Capping the scale locks out anyone who needs
+  // to magnify an Emirates ID number or a contract amount to read it, and it
+  // is the single most common accessibility defect in a mobile-first form.
+  maximumScale: 5,
+  userScalable: true,
 };
 
 export default function RootLayout({
@@ -37,10 +41,15 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${inter.variable} ${cairo.variable}`}>
-      <body className="font-sans">
+      <body className="font-sans antialiased">
         <ChunkReloadGuard />
+        {/* First tab stop on every page: jump past the header straight to the
+            page's own content. */}
+        <a href="#main" className="skip-link">
+          Skip to content
+        </a>
         <BrandHeader />
-        {children}
+        <div id="main">{children}</div>
       </body>
     </html>
   );

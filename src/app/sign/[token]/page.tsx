@@ -3,6 +3,7 @@ import { getCrew, getProjectName } from '@/lib/crew-db';
 import { buildPlaceholders, formatAed } from '@/lib/contract-pdf';
 import { lookupSignToken } from '@/lib/sign-tokens';
 import { SignContract } from '@/components/sign/SignContract';
+import { Icon, type IconName } from '@/components/ui/Icon';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -60,6 +61,7 @@ export default async function SignPage({ params }: { params: { token: string } }
             ? 'تم توقيع هذا العقد بالفعل، ولا يلزم أي إجراء إضافي.'
             : 'انتهت صلاحية الرابط أو أنه غير صحيح. يُرجى الرد على بريد العقد وسنرسل لكم رابطاً جديداً.'
         }
+        tone={lookup.reason === 'used' ? 'ok' : 'warn'}
       />
     );
   }
@@ -94,21 +96,42 @@ export default async function SignPage({ params }: { params: { token: string } }
   );
 }
 
+/**
+ * The dead-end screen for a link that cannot be opened. `tone` distinguishes
+ * "already done, nothing to worry about" from "something is wrong" — a crew
+ * member who already signed should not be met with a red warning.
+ */
 function Notice({
   title,
   body,
   bodyAr,
+  tone = 'warn',
 }: {
   title: string;
   body: string;
   bodyAr: string;
+  tone?: 'ok' | 'warn';
 }) {
+  const icon: IconName = tone === 'ok' ? 'checkCircle' : 'info';
   return (
     <main className="mx-auto max-w-lg px-5 pb-16 pt-10">
-      <div className="card p-7 text-center">
-        <h1 className="text-xl font-bold">{title}</h1>
-        <p className="mt-3 text-sm leading-relaxed text-paper/70">{body}</p>
-        <p className="mt-4 text-sm leading-relaxed text-paper/50" dir="rtl">
+      <div className="card p-7 text-center animate-scale-in">
+        <span
+          className={`mx-auto grid h-14 w-14 place-items-center rounded-2xl border ${
+            tone === 'ok'
+              ? 'border-ok/30 bg-ok/10 text-ok'
+              : 'border-warn/30 bg-warn/10 text-warn'
+          }`}
+        >
+          <Icon name={icon} className="h-7 w-7" />
+        </span>
+        <h1 className="mt-5 text-xl text-display">{title}</h1>
+        <p className="mt-3 text-sm leading-relaxed text-paper/[0.72]">{body}</p>
+        <p
+          className="mt-4 border-t border-ink-800 pt-4 text-sm leading-relaxed text-paper/[0.72]"
+          dir="rtl"
+          lang="ar"
+        >
           {bodyAr}
         </p>
       </div>

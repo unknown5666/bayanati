@@ -9,6 +9,11 @@ import { StatusBadge, statusLabel } from './StatusBadge';
 import { Modal } from './Modal';
 import { CrewDetails } from './CrewDetails';
 import { checkInbox, stampContracts } from '@/lib/api-client';
+import { Icon, type IconName } from '@/components/ui/Icon';
+import { Spinner } from '@/components/ui/Spinner';
+import { Alert } from '@/components/ui/Alert';
+import { Segmented } from '@/components/ui/Segmented';
+import { CrewCardSkeleton, StatSkeleton } from '@/components/ui/Skeleton';
 
 const STATUSES: ContractStatus[] = [
   'submitted',
@@ -24,6 +29,46 @@ function startOfMonth(): number {
   return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
 }
 
+function fullName(c: CrewMember): string {
+  return `${c.personal.firstName} ${c.personal.lastName}`.trim();
+}
+
+function initials(c: CrewMember): string {
+  const i = `${c.personal.firstName?.[0] ?? ''}${c.personal.lastName?.[0] ?? ''}`;
+  return i.toUpperCase() || '—';
+}
+
+/**
+ * Each crew member gets a stable colour from their id, so the same person is
+ * the same colour on every visit and the grid reads as a set of distinct
+ * people rather than a wall of identical amber tiles.
+ */
+const AVATAR_TINTS = [
+  'from-exposure to-exposure-deep text-ink-950',
+  'from-brand-soft to-brand text-paper',
+  'from-info to-blue-700 text-paper',
+  'from-ok to-emerald-700 text-ink-950',
+  'from-purple-400 to-purple-700 text-paper',
+  'from-orange-400 to-orange-700 text-ink-950',
+];
+
+function tintFor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return AVATAR_TINTS[h % AVATAR_TINTS.length];
+}
+
+function Avatar({ crew, className = 'h-11 w-11' }: { crew: CrewMember; className?: string }) {
+  return (
+    <span
+      className={`grid shrink-0 place-items-center rounded-2xl bg-gradient-to-br text-sm font-bold shadow-soft ${tintFor(crew.id)} ${className}`}
+      aria-hidden="true"
+    >
+      {initials(crew)}
+    </span>
+  );
+}
+
 export function Dashboard({ adminEmail }: { adminEmail: string }) {
   const { crew, loading, error } = useCrewList();
   const [search, setSearch] = useState('');
@@ -32,7 +77,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  const [bulkMsg, setBulkMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => {
@@ -59,9 +104,12 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
       if (r.rejected) parts.push(`${r.rejected} reply(ies) sent back (pictures, not a scanned PDF)`);
       if (r.unmatched) parts.push(`${r.unmatched} could not be matched — check your email`);
       if (!r.filed && !r.rejected && !r.unmatched) parts.push('nothing new to file');
-      setBulkMsg(`${parts.join(' · ')}.`);
+      setBulkMsg({ kind: 'ok', text: `${parts.join(' · ')}.` });
     } catch (err) {
-      setBulkMsg(err instanceof Error ? err.message : 'Inbox check failed');
+      setBulkMsg({
+        kind: 'err',
+        text: err instanceof Error ? err.message : 'Inbox check failed',
+      });
     } finally {
       setInboxBusy(false);
     }
@@ -78,10 +126,13 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
       const skipped = res.results.length - ok;
       let text = `Company stamp applied to ${ok} of ${ids.length} selected.`;
       if (skipped > 0) text += ` ${skipped} skipped (no signed contract yet, or an error).`;
-      setBulkMsg(text);
+      setBulkMsg({ kind: 'ok', text });
       clearSelection();
     } catch (err) {
-      setBulkMsg(err instanceof Error ? err.message : 'Bulk stamp failed');
+      setBulkMsg({
+        kind: 'err',
+        text: err instanceof Error ? err.message : 'Bulk stamp failed',
+      });
     } finally {
       setBulkBusy(false);
     }
@@ -112,105 +163,192 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
   }, [crew, search, status]);
 
   const selected = crew.find((c) => c.id === selectedId) ?? null;
+  const filtersActive = search.trim() !== '' || status !== 'all';
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
+      <header className="mb-7 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Bayanati Dashboard</h1>
+          <h1 className="text-3xl text-display sm:text-4xl">Dashboard</h1>
+          <p className="mt-1 flex items-center gap-1.5 text-sm text-paper/[0.72]">
+            <Icon name="user" className="h-3.5 w-3.5" />
+            <span className="truncate">{adminEmail}</span>
+          </p>
         </div>
-        <div className="flex items-center gap-3 text-sm">
-          <span className="hidden text-paper/60 sm:inline">{adminEmail}</span>
+        <div className="flex items-center gap-2">
           <button
-            className="btn-ghost px-3 py-2"
+            className="btn-ghost btn-sm"
             onClick={onCheckInbox}
             disabled={inboxBusy}
+            // The label collapses to an icon on small screens, so the button
+            // needs a name of its own there.
+            aria-label="Check inbox"
             title="Check the contracts mailbox now for replies with signed scans (it is also checked automatically)"
           >
-            {inboxBusy ? 'Checking…' : '📥 Check inbox'}
+            {inboxBusy ? <Spinner /> : <Icon name="inbox" className="h-4 w-4" />}
+            <span className="hidden sm:inline">
+              {inboxBusy ? 'Checking…' : 'Check inbox'}
+            </span>
           </button>
-          <button className="btn-ghost px-3 py-2" onClick={() => signOut(firebaseAuth())}>
-            Sign out
+          <button
+            className="btn-ghost btn-sm"
+            onClick={() => signOut(firebaseAuth())}
+            aria-label="Sign out"
+          >
+            <Icon name="logout" className="h-4 w-4" />
+            <span className="hidden sm:inline">Sign out</span>
           </button>
         </div>
       </header>
 
       <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Submitted this month" value={stats.thisMonth} />
-        <Stat label="Contracts sent" value={stats.sent} />
-        <Stat label="Both signed" value={stats.bothSigned} accent />
-        <Stat label="Pending signatures" value={stats.pendingSignature} />
+        {loading ? (
+          Array.from({ length: 4 }, (_, i) => <StatSkeleton key={i} />)
+        ) : (
+          <>
+            <Stat icon="inbox" label="Submitted this month" value={stats.thisMonth} />
+            <Stat icon="send" label="Contracts sent" value={stats.sent} tone="info" />
+            <Stat
+              icon="checkCircle"
+              label="Both signed"
+              value={stats.bothSigned}
+              tone="ok"
+              accent
+            />
+            <Stat
+              icon="clock"
+              label="Pending signatures"
+              value={stats.pendingSignature}
+              tone="warn"
+            />
+          </>
+        )}
       </section>
 
-      <section className="mb-4 flex flex-wrap items-center gap-2">
-        <input
-          className="field-input max-w-xs flex-1"
-          placeholder="Search name, email, role…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <select
-          className="field-input w-auto"
-          value={status}
-          onChange={(e) => setStatus(e.target.value as ContractStatus | 'all')}
-        >
-          <option value="all">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {statusLabel(s)}
-            </option>
-          ))}
-        </select>
-        <div className="ml-auto flex overflow-hidden rounded-xl border border-ink-600">
-          {(['cards', 'table'] as const).map((v) => (
+      {/* Sticky toolbar: on a long crew list, search and the status filter are
+          what you reach for after scrolling, so they follow you down. */}
+      <section className="sticky top-[var(--header-h)] z-30 -mx-4 mb-5 border-y border-ink-800/70 bg-ink-950/80 px-4 py-3 backdrop-blur-xl">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[12rem] max-w-xs flex-1">
+            <Icon
+              name="search"
+              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"
+            />
+            <label className="sr-only" htmlFor="crew-search">
+              Search crew
+            </label>
+            <input
+              id="crew-search"
+              type="search"
+              className="field-input py-2.5 pl-10"
+              placeholder="Search name, email, role…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <label className="sr-only" htmlFor="crew-status">
+            Filter by status
+          </label>
+          <select
+            id="crew-status"
+            className="field-input w-auto py-2.5"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as ContractStatus | 'all')}
+          >
+            <option value="all">All statuses</option>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {statusLabel(s)}
+              </option>
+            ))}
+          </select>
+
+          {filtersActive && (
             <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`px-3 py-2 text-sm ${
-                view === v ? 'bg-exposure text-ink-950' : 'text-paper/70 hover:bg-ink-800'
-              }`}
+              className="btn-quiet btn-sm"
+              onClick={() => {
+                setSearch('');
+                setStatus('all');
+              }}
             >
-              {v === 'cards' ? 'Cards' : 'Table'}
+              <Icon name="close" className="h-3.5 w-3.5" />
+              Clear
             </button>
-          ))}
+          )}
+
+          <Segmented
+            className="ml-auto"
+            label="Crew list view"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'cards', label: 'Cards' },
+              { value: 'table', label: 'Table' },
+            ]}
+          />
         </div>
+
+        {/* Result count doubles as the live region announcing filter results. */}
+        {!loading && (
+          <p className="mt-2 text-xs text-paper/[0.55]" role="status">
+            {filtered.length} of {crew.length} crew
+            {filtersActive ? ' match your filters' : ''}
+          </p>
+        )}
       </section>
 
       {selectedIds.size > 0 && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-exposure/40 bg-ink-900 px-4 py-3">
-          <span className="text-sm font-medium">{selectedIds.size} selected</span>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-exposure/40 bg-exposure/[0.07] px-4 py-3 animate-rise-in">
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <span className="grid h-6 min-w-6 place-items-center rounded-full bg-exposure px-1.5 text-xs font-bold text-ink-950 nums">
+              {selectedIds.size}
+            </span>
+            selected
+          </span>
           <div className="flex gap-2">
-            <button className="btn-ghost px-3 py-2" onClick={clearSelection} disabled={bulkBusy}>
+            <button className="btn-quiet btn-sm" onClick={clearSelection} disabled={bulkBusy}>
               Clear
             </button>
             <button
-              className="btn-primary px-3 py-2"
+              className="btn-primary btn-sm"
               onClick={onBulkStamp}
               disabled={bulkBusy}
               title="Apply the company stamp to every selected crew member whose contract is signed"
             >
-              {bulkBusy ? 'Stamping…' : '🏷️ Apply stamp to signed'}
+              {bulkBusy ? <Spinner /> : <Icon name="stamp" className="h-4 w-4" />}
+              {bulkBusy ? 'Stamping…' : 'Apply stamp to signed'}
             </button>
           </div>
         </div>
       )}
 
       {bulkMsg && (
-        <p className="mb-4 rounded-lg bg-green-500/10 px-4 py-2.5 text-sm text-green-300">
-          {bulkMsg}
-        </p>
+        <Alert tone={bulkMsg.kind === 'ok' ? 'ok' : 'error'} className="mb-4">
+          {bulkMsg.text}
+        </Alert>
       )}
 
       {error && (
-        <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <Alert tone="error" className="mb-4">
           Could not load crew: {error}. Check your Realtime DB rules allow admin reads.
-        </p>
+        </Alert>
       )}
 
       {loading ? (
-        <p className="py-16 text-center text-paper/50">Loading crew…</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }, (_, i) => (
+            <CrewCardSkeleton key={i} />
+          ))}
+        </div>
       ) : filtered.length === 0 ? (
-        <p className="py-16 text-center text-paper/50">No crew match your filters yet.</p>
+        <EmptyState
+          filtered={filtersActive}
+          onClear={() => {
+            setSearch('');
+            setStatus('all');
+          }}
+        />
       ) : view === 'cards' ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((c) => (
@@ -243,11 +381,64 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
+const STAT_TONE = {
+  neutral: 'text-paper/[0.72] bg-ink-800 border-ink-700',
+  info: 'text-info bg-info/10 border-info/20',
+  ok: 'text-ok bg-ok/10 border-ok/20',
+  warn: 'text-warn bg-warn/10 border-warn/20',
+} as const;
+
+function Stat({
+  icon,
+  label,
+  value,
+  accent,
+  tone = 'neutral',
+}: {
+  icon: IconName;
+  label: string;
+  value: number;
+  accent?: boolean;
+  tone?: keyof typeof STAT_TONE;
+}) {
   return (
-    <div className={`card p-4 ${accent ? 'border-exposure/40' : ''}`}>
-      <p className="text-3xl font-bold">{value}</p>
-      <p className="mt-1 text-xs text-paper/60">{label}</p>
+    <div
+      className={`card p-4 transition duration-200 ease-entrance hover:-translate-y-0.5 hover:shadow-float sm:p-5 ${
+        accent ? 'border-exposure/40' : ''
+      }`}
+    >
+      <span
+        className={`grid h-8 w-8 place-items-center rounded-lg border ${STAT_TONE[tone]}`}
+      >
+        <Icon name={icon} className="h-4 w-4" strokeWidth={2} />
+      </span>
+      {/* Tabular figures so the four tiles' numbers line up as they change. */}
+      <p className="mt-3 text-3xl font-bold nums sm:text-4xl">{value}</p>
+      <p className="mt-1 text-xs leading-snug text-paper/[0.72]">{label}</p>
+    </div>
+  );
+}
+
+function EmptyState({ filtered, onClear }: { filtered: boolean; onClear: () => void }) {
+  return (
+    <div className="card flex flex-col items-center px-6 py-16 text-center animate-fade-in">
+      <span className="grid h-14 w-14 place-items-center rounded-2xl border border-ink-700 bg-ink-800 text-paper/[0.55]">
+        <Icon name={filtered ? 'search' : 'users'} className="h-6 w-6" />
+      </span>
+      <p className="mt-4 text-lg font-semibold">
+        {filtered ? 'No crew match your filters' : 'No crew yet'}
+      </p>
+      <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-paper/[0.72]">
+        {filtered
+          ? 'Try a different name, email or role — or clear the filters to see everyone.'
+          : 'As soon as someone completes the intake form, they will appear here.'}
+      </p>
+      {filtered && (
+        <button className="btn-ghost btn-sm mt-5" onClick={onClear}>
+          <Icon name="refresh" className="h-4 w-4" />
+          Clear filters
+        </button>
+      )}
     </div>
   );
 }
@@ -263,32 +454,45 @@ function CrewCard({
   selected: boolean;
   onToggle: () => void;
 }) {
-  const name = `${crew.personal.firstName} ${crew.personal.lastName}`.trim();
+  const name = fullName(crew);
   return (
     <div className="relative">
-      <input
-        type="checkbox"
-        checked={selected}
-        onChange={onToggle}
-        onClick={(e) => e.stopPropagation()}
-        aria-label={`Select ${name}`}
-        className="absolute left-3 top-3 z-10 h-4 w-4 cursor-pointer accent-exposure"
-      />
+      {/*
+        The checkbox sits outside the card button rather than inside it —
+        nesting an interactive control in a button is invalid, and it means a
+        tap meant for "select" cannot accidentally open the modal. It gets a
+        44px hit area via padding while the box itself stays 18px.
+      */}
+      <label className="absolute right-2 top-2 z-10 grid h-11 w-11 cursor-pointer place-items-center rounded-xl transition hover:bg-ink-800/70">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggle}
+          aria-label={`Select ${name}`}
+          className="h-[18px] w-[18px] cursor-pointer rounded accent-exposure"
+        />
+      </label>
+
       <button
         onClick={onOpen}
-        className={`card w-full p-4 pl-10 text-left transition hover:border-exposure/50 ${
-          selected ? 'border-exposure/60' : ''
+        className={`card-interactive w-full p-4 pr-14 ${
+          selected ? 'border-exposure/60 bg-exposure/[0.04]' : ''
         }`}
       >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <p className="font-semibold">{name}</p>
-            <p className="text-sm text-paper/60">{crew.personal.email}</p>
+        <div className="flex items-center gap-3">
+          <Avatar crew={crew} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold">{name || 'Unnamed crew'}</p>
+            <p className="truncate text-sm text-paper/[0.72]" dir="ltr">
+              {crew.personal.email}
+            </p>
           </div>
-          <StatusBadge status={crew.contract.status} />
         </div>
-        <div className="mt-3 flex items-center gap-3 text-xs text-paper/50">
-          <span>{crew.contract.role ?? 'No role yet'}</span>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+          <StatusBadge status={crew.contract.status} />
+          <span className="truncate text-xs text-paper/[0.55]">
+            {crew.contract.role ?? 'No role yet'}
+          </span>
         </div>
       </button>
     </div>
@@ -307,48 +511,80 @@ function CrewTable({
   onToggle: (id: string) => void;
 }) {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-ink-800">
-      <table className="w-full min-w-[640px] text-left text-sm">
-        <thead className="bg-ink-900 text-paper/60">
+    // The table is the one element allowed to scroll sideways, and it does so
+    // inside its own container so the page body never does.
+    <div className="overflow-x-auto rounded-2xl border border-ink-700/80 bg-ink-900/50 shadow-lift">
+      <table className="w-full min-w-[680px] text-left text-sm">
+        <thead className="border-b border-ink-800 bg-ink-900/80 text-xs uppercase tracking-wider text-paper/[0.55]">
           <tr>
-            <th className="px-4 py-3" />
-            <th className="px-4 py-3 font-medium">Name</th>
-            <th className="px-4 py-3 font-medium">Email</th>
-            <th className="px-4 py-3 font-medium">Role</th>
-            <th className="px-4 py-3 font-medium">Status</th>
-            <th className="px-4 py-3" />
+            <th scope="col" className="w-12 px-4 py-3">
+              <span className="sr-only">Select</span>
+            </th>
+            <th scope="col" className="px-4 py-3 font-semibold">
+              Name
+            </th>
+            <th scope="col" className="px-4 py-3 font-semibold">
+              Email
+            </th>
+            <th scope="col" className="px-4 py-3 font-semibold">
+              Role
+            </th>
+            <th scope="col" className="px-4 py-3 font-semibold">
+              Status
+            </th>
+            <th scope="col" className="px-4 py-3 text-right font-semibold">
+              <span className="sr-only">Actions</span>
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-ink-800">
-          {crew.map((c) => (
-            <tr key={c.id} className="hover:bg-ink-900/60">
-              <td className="px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={selectedIds.has(c.id)}
-                  onChange={() => onToggle(c.id)}
-                  aria-label={`Select ${c.personal.firstName} ${c.personal.lastName}`}
-                  className="h-4 w-4 cursor-pointer accent-exposure"
-                />
-              </td>
-              <td className="px-4 py-3 font-medium">
-                {c.personal.firstName} {c.personal.lastName}
-              </td>
-              <td className="px-4 py-3 text-paper/70">{c.personal.email}</td>
-              <td className="px-4 py-3 text-paper/70">{c.contract.role ?? '—'}</td>
-              <td className="px-4 py-3">
-                <StatusBadge status={c.contract.status} />
-              </td>
-              <td className="px-4 py-3 text-right">
-                <button
-                  onClick={() => onOpen(c.id)}
-                  className="rounded-lg bg-ink-700 px-3 py-1.5 text-xs font-medium hover:bg-ink-600"
-                >
-                  Open
-                </button>
-              </td>
-            </tr>
-          ))}
+          {crew.map((c) => {
+            const name = fullName(c);
+            const isSelected = selectedIds.has(c.id);
+            return (
+              <tr
+                key={c.id}
+                className={`transition duration-150 hover:bg-ink-800/50 ${
+                  isSelected ? 'bg-exposure/[0.06]' : ''
+                }`}
+              >
+                <td className="px-4 py-2">
+                  <label className="grid h-11 w-8 cursor-pointer place-items-center">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => onToggle(c.id)}
+                      aria-label={`Select ${name}`}
+                      className="h-[18px] w-[18px] cursor-pointer rounded accent-exposure"
+                    />
+                  </label>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <Avatar crew={c} className="h-8 w-8 rounded-xl text-[11px]" />
+                    <span className="font-medium">{name || 'Unnamed crew'}</span>
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-paper/[0.72]" dir="ltr">
+                  {c.personal.email}
+                </td>
+                <td className="px-4 py-3 text-paper/[0.72]">{c.contract.role ?? '—'}</td>
+                <td className="px-4 py-3">
+                  <StatusBadge status={c.contract.status} />
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    onClick={() => onOpen(c.id)}
+                    className="btn-ghost btn-sm"
+                    aria-label={`Open details for ${name}`}
+                  >
+                    Open
+                    <Icon name="arrowRight" className="h-3.5 w-3.5" />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

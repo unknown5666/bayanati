@@ -6,7 +6,7 @@ export const metadata = {
 
 export default function CrewFormPage() {
   return (
-    <main className="min-h-screen px-4 py-6">
+    <main className="min-h-[calc(100dvh-var(--header-h))] px-4 py-6">
       <CrewForm />
     </main>
   );

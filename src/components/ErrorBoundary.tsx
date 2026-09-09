@@ -5,6 +5,7 @@
 // unexpected value blanks the whole dashboard with nothing to diagnose from.
 
 import { Component, type ReactNode } from 'react';
+import { Icon } from '@/components/ui/Icon';
 
 interface Props {
   children: ReactNode;
@@ -30,19 +31,23 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!error) return this.props.children;
 
     return (
-      <main className="flex min-h-screen items-center justify-center px-4">
-        <div className="card max-w-md p-6 text-center">
-          <p className="text-lg font-semibold text-red-400">Something went wrong</p>
-          <p className="mt-2 text-sm text-paper/70">
+      <main className="flex min-h-[calc(100dvh-var(--header-h))] items-center justify-center px-4">
+        <div className="card max-w-md p-7 text-center animate-scale-in">
+          <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-danger/30 bg-danger/10 text-danger">
+            <Icon name="alert" className="h-6 w-6" />
+          </span>
+          <p className="mt-4 text-lg font-semibold">Something went wrong</p>
+          <p className="mt-2 text-sm leading-relaxed text-paper/[0.72]">
             The page hit an unexpected error while rendering. Details below:
           </p>
-          <pre className="mt-3 max-h-48 overflow-auto rounded-lg bg-ink-900 p-3 text-left text-xs text-paper/80">
+          <pre className="mt-4 max-h-48 overflow-auto rounded-xl border border-ink-800 bg-ink-950/80 p-3 text-left text-xs leading-relaxed text-paper/[0.72]">
             {error.message}
           </pre>
           <button
-            className="btn-ghost mt-4"
+            className="btn-ghost mt-5 w-full"
             onClick={() => this.setState({ error: null })}
           >
+            <Icon name="refresh" className="h-4 w-4" />
             Try again
           </button>
         </div>

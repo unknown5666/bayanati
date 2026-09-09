@@ -2,63 +2,384 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   Over Exposure Productions — cinematic dark design system
+   --------------------------------------------------------------------------
+   Order of business: tokens, base, then a components layer that every screen
+   composes from. Nothing here should need a raw hex in a component.
+   ========================================================================== */
+
 :root {
   color-scheme: dark;
+
+  /* Text ramp. These opacities are the accessible floors against ink-950:
+     72% ≈ 8.4:1, 55% ≈ 5.9:1. Nothing informational goes below 55%. */
+  --text-strong: 1;
+  --text-body: 0.82;
+  --text-muted: 0.72;
+  --text-subtle: 0.55;
+
+  /* Spacing rhythm (density: standard). */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* Motion. Entrances ease out with a touch of overshoot; exits are sharper
+     and shorter, which is what makes a UI feel responsive rather than slow. */
+  --ease-entrance: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+
+  --header-h: 3.75rem;
 }
 
-html,
-body {
-  padding: 0;
-  margin: 0;
-}
+/*
+ * These element-level rules live in `@layer base` on purpose. Written
+ * unlayered they would sit after Tailwind's output in source order and beat
+ * every utility of equal specificity — `[dir='rtl'] { text-align: right }`
+ * would silently win over a `text-left` on an Arabic caption. In the base
+ * layer they set defaults that utilities can still override.
+ */
+@layer base {
+  html,
+  body {
+    padding: 0;
+    margin: 0;
+  }
 
-body {
-  background: theme('colors.ink.950');
-  color: theme('colors.paper');
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
 
-/* RTL: mirror padding/margins handled by Tailwind logical utilities where used;
-   this ensures native inputs and the document flow flip correctly. */
-[dir='rtl'] {
-  text-align: right;
+  body {
+    position: relative;
+    min-height: 100dvh;
+    background-color: theme('colors.ink.950');
+    color: theme('colors.paper');
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+  }
+
+  /*
+   * The "over exposure" itself: two soft light sources bleeding in from the top
+   * corners — amber from the left, logo maroon from the right — over the ink
+   * ground. Fixed and non-interactive so it costs nothing to scroll past, and
+   * painted on ::before so no wrapper element is needed.
+   */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    background:
+      radial-gradient(70rem 40rem at 12% -8%, rgba(232, 176, 75, 0.13), transparent 60%),
+      radial-gradient(60rem 36rem at 92% -4%, rgba(142, 31, 63, 0.16), transparent 62%),
+      radial-gradient(90rem 50rem at 50% 108%, rgba(232, 176, 75, 0.05), transparent 70%);
+  }
+
+  /*
+   * A whisper of film grain over the whole page. It breaks up the flat gradient
+   * banding that large dark washes otherwise show on 8-bit panels, and it is the
+   * single cheapest way to make a dark UI read as "shot" rather than "drawn".
+   */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.4;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.42'/%3E%3C/svg%3E");
+  }
+
+  /* One consistent, always-visible focus treatment. Never remove it — an amber
+     ring on ink is unmistakable and it is the only affordance keyboard users
+     have. `:focus-visible` keeps it off pointer interactions. */
+  :focus-visible {
+    outline: 2px solid theme('colors.exposure.DEFAULT');
+    outline-offset: 2px;
+    border-radius: 0.35rem;
+  }
+
+  ::selection {
+    background: theme('colors.exposure.DEFAULT');
+    color: theme('colors.ink.950');
+  }
+
+  /* Slim, themed scrollbars so overflow areas stop looking like a browser
+     default pasted onto a designed surface. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.ink.600') transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: theme('colors.ink.700');
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: theme('colors.ink.600');
+  }
+
+  /* Arabic copy gets the Arabic face automatically wherever it appears, so a
+     bilingual block does not need a font class on every span. */
+  [dir='rtl'] {
+    text-align: right;
+  }
+  :lang(ar),
+  [dir='rtl'] {
+    font-family: theme('fontFamily.arabic');
+  }
+
+  /* Native date pickers ship a black icon that vanishes on a dark field. */
+  input[type='date']::-webkit-calendar-picker-indicator {
+    filter: invert(0.8);
+    cursor: pointer;
+    opacity: 0.7;
+  }
+  input[type='date']::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
+
+  /* Kill the number spinners — amounts are typed, not nudged. */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+
+  /*
+   * Honour the OS "reduce motion" setting everywhere at once. Transitions are
+   * collapsed rather than removed so state changes still resolve, just instantly.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 @layer components {
+  /* ---------------------------------------------------------------- fields */
+
   .field-label {
-    @apply mb-1.5 block text-sm font-medium text-paper/80;
+    @apply mb-1.5 block text-sm font-medium text-paper/[0.82];
   }
 
   .field-input {
-    @apply w-full rounded-xl border border-ink-600 bg-ink-800 px-4 py-3 text-base
-      text-paper placeholder:text-ink-500 outline-none transition
-      focus:border-exposure focus:ring-2 focus:ring-exposure/30;
+    @apply w-full rounded-xl border border-ink-600 bg-ink-850/90 px-4 py-3 text-base
+      text-paper shadow-inner shadow-black/20 placeholder:text-ink-400
+      outline-none transition duration-200 ease-entrance
+      hover:border-ink-500
+      focus:border-exposure focus:bg-ink-850 focus:shadow-flare focus:ring-4
+      focus:ring-exposure/20
+      disabled:cursor-not-allowed disabled:opacity-55;
+  }
+
+  /* Inputs own their focus styling, so the global outline would double up. */
+  .field-input:focus-visible {
+    outline: none;
   }
 
   .field-input-error {
-    @apply border-red-500/70 focus:border-red-500 focus:ring-red-500/30;
+    @apply border-danger/70 focus:border-danger focus:shadow-none focus:ring-danger/25;
   }
 
   .field-error {
-    @apply mt-1.5 text-sm text-red-400;
+    @apply mt-1.5 flex items-start gap-1.5 text-sm text-danger;
   }
 
+  .field-hint {
+    @apply mt-1.5 text-sm text-paper/[0.55];
+  }
+
+  /* --------------------------------------------------------------- buttons */
+
+  /*
+   * Every button shares one skeleton: a 44px minimum tap target (WCAG 2.5.5 /
+   * both platform HIGs), a press-down at 120ms, and a disabled state that
+   * stops pointer events rather than just fading.
+   */
+  .btn {
+    @apply inline-flex min-h-[2.75rem] select-none items-center justify-center gap-2
+      whitespace-nowrap rounded-xl px-5 text-base font-semibold
+      transition duration-150 ease-entrance
+      active:scale-[0.97]
+      disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  /* The one hero action per view: an amber gradient with a warm bloom under
+     it, so the eye lands on it before reading anything. */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-exposure
-      px-5 py-3 text-base font-semibold text-ink-950 transition
-      hover:bg-exposure-soft active:scale-[0.99] disabled:cursor-not-allowed
-      disabled:opacity-50;
+    @apply btn bg-exposure-gradient text-ink-950 shadow-flare
+      hover:brightness-110 hover:shadow-flare-lg;
   }
 
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl border
-      border-ink-600 bg-transparent px-5 py-3 text-base font-medium text-paper
-      transition hover:bg-ink-800 disabled:opacity-50;
+    @apply btn border border-ink-600 bg-ink-850/60 font-medium text-paper backdrop-blur-sm
+      hover:border-ink-500 hover:bg-ink-800;
   }
 
+  .btn-quiet {
+    @apply btn bg-transparent font-medium text-paper/[0.72] hover:bg-ink-800 hover:text-paper;
+  }
+
+  .btn-danger {
+    @apply btn border border-danger/40 bg-danger/10 font-medium text-danger
+      hover:border-danger/70 hover:bg-danger/20;
+  }
+
+  /* Compact variant for toolbars and row actions — still 44px tall. */
+  .btn-sm {
+    @apply min-h-[2.25rem] gap-1.5 rounded-lg px-3 text-sm;
+  }
+
+  /* Icon-only buttons must stay square and must carry an aria-label. */
+  .btn-icon {
+    @apply grid h-11 w-11 shrink-0 place-items-center rounded-xl px-0
+      text-paper/[0.72] transition duration-150
+      hover:bg-ink-800 hover:text-paper;
+  }
+
+  /* -------------------------------------------------------------- surfaces */
+
+  /*
+   * The base card: a translucent ink surface with a hairline top highlight,
+   * which is what sells "lit from above" and separates stacked cards without
+   * a heavy border.
+   */
   .card {
-    @apply rounded-2xl border border-ink-700 bg-ink-900/80 shadow-xl
-      shadow-black/30;
+    @apply relative rounded-2xl border border-ink-700/80 bg-ink-900/70 shadow-lift
+      backdrop-blur-xl;
+  }
+
+  .card::before {
+    content: '';
+    @apply pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-2xl
+      bg-gradient-to-r from-transparent via-paper/[0.14] to-transparent;
+  }
+
+  /* An interactive card — anything clickable in a grid. */
+  .card-interactive {
+    @apply card text-left transition duration-200 ease-entrance
+      hover:-translate-y-0.5 hover:border-exposure/45 hover:shadow-float
+      focus-visible:-translate-y-0.5 focus-visible:border-exposure/45;
+  }
+
+  /* A quieter panel for grouped read-only rows inside a card or modal. */
+  .panel {
+    @apply overflow-hidden rounded-2xl border border-ink-800 bg-ink-900/45;
+  }
+
+  .panel-heading {
+    @apply flex items-center gap-2 px-4 pb-1.5 pt-3 text-[11px] font-semibold
+      uppercase tracking-[0.14em] text-paper/[0.55];
+  }
+
+  /* A row inside a panel that is itself a link/button. */
+  .panel-row {
+    @apply flex items-center justify-between gap-3 px-4 py-3 text-sm
+      transition duration-150 hover:bg-ink-800/70;
+  }
+
+  /* ----------------------------------------------------------------- chips */
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1
+      text-xs font-medium;
+  }
+
+  /* Segmented control — a single bordered group of mutually exclusive views. */
+  .segmented {
+    @apply inline-flex overflow-hidden rounded-xl border border-ink-600 bg-ink-850/70 p-1;
+  }
+
+  .segmented-item {
+    @apply min-h-[2.25rem] rounded-lg px-3.5 text-sm font-medium text-paper/[0.72]
+      transition duration-150 ease-entrance hover:text-paper;
+  }
+
+  .segmented-item[aria-pressed='true'],
+  .segmented-item[data-active='true'] {
+    @apply bg-exposure-gradient text-ink-950 shadow-flare;
+  }
+
+  /* -------------------------------------------------------------- feedback */
+
+  .alert {
+    @apply flex items-start gap-3 rounded-xl border px-4 py-3 text-sm animate-rise-in;
+  }
+
+  .alert-ok {
+    @apply border-ok/25 bg-ok/10 text-ok;
+  }
+
+  .alert-error {
+    @apply border-danger/30 bg-danger/10 text-danger;
+  }
+
+  .alert-info {
+    @apply border-info/25 bg-info/10 text-info;
+  }
+
+  /* Loading placeholder with a light sweep travelling across it. */
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-ink-800;
+  }
+
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full animate-shimmer
+      bg-gradient-to-r from-transparent via-paper/[0.07] to-transparent;
+  }
+
+  /* ------------------------------------------------------------- utilities */
+
+  /* Display type: tight tracking is what separates a title from a heading. */
+  .text-display {
+    @apply font-bold tracking-display;
+  }
+
+  /* The amber-to-maroon wash used on hero words. Falls back to solid paper
+     where background-clip:text is unsupported. */
+  .text-flare {
+    @apply bg-brand-gradient bg-clip-text text-transparent;
+  }
+
+  /* Stat figures and any aligned numeric column. */
+  .nums {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* Keyboard-only skip target at the top of the document. */
+  .skip-link {
+    @apply sr-only rounded-lg bg-exposure px-4 py-2 font-semibold text-ink-950
+      focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100];
   }
 }

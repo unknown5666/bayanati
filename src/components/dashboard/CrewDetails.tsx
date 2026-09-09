@@ -4,6 +4,9 @@ import { useState, type ReactNode } from 'react';
 import { Modal } from './Modal';
 import { StatusBadge } from './StatusBadge';
 import type { CrewMember, SignatureRecord } from '@/lib/types';
+import { Icon, type IconName } from '@/components/ui/Icon';
+import { Spinner } from '@/components/ui/Spinner';
+import { Alert } from '@/components/ui/Alert';
 import {
   generateContracts,
   sendContracts,
@@ -27,7 +30,7 @@ function maskIban(iban?: string): string {
 }
 
 function initials(first?: string, last?: string): string {
-  return `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase() || '👤';
+  return `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase() || '—';
 }
 
 /** A label/value row; shows a small amber dot when the value was edited by an admin. */
@@ -44,16 +47,18 @@ function Row({
 }) {
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-      <span className="flex items-center gap-1.5 text-sm text-paper/60">
+      <span className="flex shrink-0 items-center gap-1.5 text-sm text-paper/[0.72]">
         {label}
         {edited && (
           <span
             title="Edited for this contract"
             className="inline-block h-1.5 w-1.5 rounded-full bg-exposure"
-          />
+          >
+            <span className="sr-only">edited for this contract</span>
+          </span>
         )}
       </span>
-      <span className="text-sm font-medium" dir={dir}>
+      <span className="min-w-0 truncate text-sm font-medium" dir={dir}>
         {value || '—'}
       </span>
     </div>
@@ -71,9 +76,29 @@ function methodLabel(method?: string): string {
 }
 
 /** One line summarising where a single contract has got to. */
-function contractState(sig: SignatureRecord | undefined, signUrl?: string): string {
-  if (sig?.signed) return `✓ Signed — ${methodLabel(sig.method)}`;
-  return signUrl ? 'Emailed · awaiting signature' : 'Not sent';
+function ContractState({
+  sig,
+  signUrl,
+}: {
+  sig: SignatureRecord | undefined;
+  signUrl?: string;
+}) {
+  if (sig?.signed) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-ok">
+        <Icon name="check" className="h-3.5 w-3.5" strokeWidth={2.5} />
+        Signed — {methodLabel(sig.method)}
+      </span>
+    );
+  }
+  return signUrl ? (
+    <span className="inline-flex items-center gap-1.5 text-info">
+      <Icon name="clock" className="h-3.5 w-3.5" />
+      Emailed · awaiting signature
+    </span>
+  ) : (
+    <span className="text-paper/[0.55]">Not sent</span>
+  );
 }
 
 /** Copies a signing link to the clipboard, confirming inline. */
@@ -93,18 +118,58 @@ function CopyButton({ value, disabled }: { value: string; disabled?: boolean }) 
           // next to this button still gives the admin the URL.
         }
       }}
-      className="rounded-lg border border-ink-600 px-2.5 py-1 text-xs text-paper/80 transition hover:border-exposure hover:text-exposure disabled:opacity-40"
+      className={`btn btn-sm border ${
+        copied
+          ? 'border-ok/40 bg-ok/10 text-ok'
+          : 'border-ink-600 bg-ink-850/60 font-medium text-paper/[0.82] hover:border-exposure hover:text-exposure'
+      }`}
     >
-      {copied ? 'Copied ✓' : 'Copy'}
+      <Icon name={copied ? 'check' : 'copy'} className="h-3.5 w-3.5" />
+      {copied ? 'Copied' : 'Copy'}
     </button>
   );
 }
 
-function SectionLabel({ children }: { children: ReactNode }) {
+function SectionLabel({ icon, children }: { icon: IconName; children: ReactNode }) {
   return (
-    <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-paper/40">
+    <p className="panel-heading">
+      <Icon name={icon} className="h-3.5 w-3.5" />
       {children}
     </p>
+  );
+}
+
+/** A panel of outbound links (generated / signing / signed / stamped copies). */
+function LinkRow({
+  icon,
+  label,
+  meta,
+  href,
+  tone = 'default',
+}: {
+  icon: IconName;
+  label: string;
+  meta?: string;
+  href: string;
+  tone?: 'default' | 'ok';
+}) {
+  return (
+    <a className="panel-row group" href={href} target="_blank" rel="noreferrer">
+      <span className="flex min-w-0 items-center gap-2.5">
+        <Icon
+          name={icon}
+          className={`h-4 w-4 ${tone === 'ok' ? 'text-ok' : 'text-paper/[0.55]'}`}
+        />
+        <span className="min-w-0">
+          <span className="font-medium">{label}</span>
+          {meta && <span className="ml-2 text-xs text-paper/[0.55]">{meta}</span>}
+        </span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1 text-xs text-paper/[0.55] transition group-hover:text-exposure">
+        View
+        <Icon name="external" className="h-3.5 w-3.5" />
+      </span>
+    </a>
   );
 }
 
@@ -181,7 +246,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
   async function onSend() {
     const res = await run(
       () => sendContracts(crew.id, scope.types),
-      `${scope.label} ${alreadySent ? 're-sent' : 'emailed'} with the PDF attached ✓`,
+      `${scope.label} ${alreadySent ? 're-sent' : 'emailed'} with the PDF attached.`,
     );
     if (res?.links) setLinks((prev) => ({ ...prev, ...res.links }));
     if (res?.signLinks) setSignLinks((prev) => ({ ...prev, ...res.signLinks }));
@@ -190,7 +255,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
   async function onStamp() {
     const res = await run(
       () => stampContracts([crew.id]),
-      'Company stamp applied to the signed contract(s) ✓',
+      'Company stamp applied to the signed contract(s).',
     );
     const mine = res?.results?.find((r) => r.crewId === crew.id);
     if (mine && !mine.ok) {
@@ -200,25 +265,46 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
     }
   }
 
+  const scopeSuffix = scope.key === 'both' ? 'A+B' : scope.key;
+
   return (
     <div className="grid gap-4">
-      {/* Header */}
+      {/* Identity header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-exposure to-brand text-lg font-bold text-ink-950 shadow-lg shadow-brand/20">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-brand-gradient text-lg font-bold text-ink-950 shadow-lift"
+            aria-hidden="true"
+          >
             {initials(crew.personal.firstName, crew.personal.lastName)}
-          </div>
-          <div>
-            <h2 className="text-xl font-bold leading-tight">{name || 'Unnamed crew'}</h2>
-            <p className="text-sm text-paper/60">{crew.personal.email}</p>
+          </span>
+          <div className="min-w-0">
+            <h2 className="truncate text-xl font-bold leading-tight tracking-display">
+              {name || 'Unnamed crew'}
+            </h2>
+            <p className="truncate text-sm text-paper/[0.72]" dir="ltr">
+              {crew.personal.email}
+            </p>
           </div>
         </div>
         <StatusBadge status={c.status} />
       </div>
 
+      {/* Contact shortcuts — the two things an admin reaches for most. */}
+      <div className="grid grid-cols-2 gap-2">
+        <a className="btn-ghost btn-sm" href={`tel:${crew.personal.phone}`}>
+          <Icon name="phone" className="h-4 w-4" />
+          Call
+        </a>
+        <a className="btn-ghost btn-sm" href={`mailto:${crew.personal.email}`}>
+          <Icon name="mail" className="h-4 w-4" />
+          Email
+        </a>
+      </div>
+
       {/* Identity & documents */}
-      <section className="overflow-hidden rounded-2xl border border-ink-800 bg-ink-900/40">
-        <SectionLabel>Identity &amp; documents</SectionLabel>
+      <section className="panel">
+        <SectionLabel icon="user">Identity &amp; documents</SectionLabel>
         <div className="divide-y divide-ink-800">
           <Row label="Phone" value={crew.personal.phone} dir="ltr" />
           <Row label="Nationality" value={effNationality} edited={Boolean(o.nationality?.trim())} />
@@ -241,21 +327,32 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
             <Row label="Project on contract" value={o.projectName.trim()} edited />
           )}
         </div>
+        {crew.documents.driveFolder && (
+          <div className="border-t border-ink-800">
+            <LinkRow
+              icon="eye"
+              label="Uploaded documents"
+              meta="Drive folder"
+              href={crew.documents.driveFolder}
+            />
+          </div>
+        )}
       </section>
 
       {/* Contract terms */}
-      <section className="overflow-hidden rounded-2xl border border-ink-800 bg-ink-900/40">
-        <div className="flex items-center justify-between">
-          <SectionLabel>Contract terms</SectionLabel>
+      <section className="panel">
+        <div className="flex items-center justify-between gap-2 pr-2">
+          <SectionLabel icon="document">Contract terms</SectionLabel>
           <button
             type="button"
             onClick={() => {
               setMsg(null);
               setEditing(true);
             }}
-            className="mr-3 mt-2 inline-flex items-center gap-1.5 rounded-lg border border-ink-600 px-2.5 py-1 text-xs font-medium text-paper/80 transition hover:border-exposure hover:text-exposure"
+            className="btn btn-sm mt-1 border border-ink-600 font-medium text-paper/[0.82] transition hover:border-exposure hover:text-exposure"
           >
-            ✏️ Edit fields
+            <Icon name="edit" className="h-3.5 w-3.5" />
+            Edit
           </button>
         </div>
         <div className="divide-y divide-ink-800">
@@ -275,241 +372,197 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
             value={c.dateFrom && c.dateTo ? `${c.dateFrom} → ${c.dateTo}` : undefined}
             dir="ltr"
           />
-          <Row
-            label="Contract A"
-            value={contractState(crew.signatures?.contractX, c.signUrlX)}
-          />
-          <Row
-            label="Contract B"
-            value={contractState(crew.signatures?.contractY, c.signUrlY)}
-          />
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+            <span className="text-sm text-paper/[0.72]">Contract A</span>
+            <span className="text-sm font-medium">
+              <ContractState sig={crew.signatures?.contractX} signUrl={c.signUrlX} />
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+            <span className="text-sm text-paper/[0.72]">Contract B</span>
+            <span className="text-sm font-medium">
+              <ContractState sig={crew.signatures?.contractY} signUrl={c.signUrlY} />
+            </span>
+          </div>
         </div>
       </section>
 
-      {msg && (
-        <p
-          className={`rounded-lg px-4 py-2.5 text-sm ${
-            msg.kind === 'ok' ? 'bg-green-500/10 text-green-300' : 'bg-red-500/10 text-red-400'
-          }`}
-        >
-          {msg.text}
-        </p>
-      )}
-
-      {/* Quick links */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        <button className="btn-primary" onClick={() => { setMsg(null); setEditing(true); }}>
-          ✏️ Edit Contract Fields
-        </button>
-        {crew.documents.driveFolder && (
-          <a
-            className="btn-ghost"
-            href={crew.documents.driveFolder}
-            target="_blank"
-            rel="noreferrer"
-          >
-            👁️ Documents
-          </a>
-        )}
-        <a className="btn-ghost" href={`tel:${crew.personal.phone}`}>
-          📞 Call
-        </a>
-        <a className="btn-ghost" href={`mailto:${crew.personal.email}`}>
-          ✉️ Email
-        </a>
-      </div>
+      {msg && <Alert tone={msg.kind === 'ok' ? 'ok' : 'error'}>{msg.text}</Alert>}
 
       {(links.X || links.Y) && (
-        <section className="rounded-xl border border-ink-800 divide-y divide-ink-800">
-          <p className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-paper/50">
-            Generated contracts
-          </p>
-          {links.X && (
-            <a
-              className="flex items-center justify-between px-4 py-2.5 text-sm hover:bg-ink-800"
-              href={links.X}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <span className="font-medium">📄 Contract A</span>
-              <span className="text-paper/50">View ↗</span>
-            </a>
-          )}
-          {links.Y && (
-            <a
-              className="flex items-center justify-between px-4 py-2.5 text-sm hover:bg-ink-800"
-              href={links.Y}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <span className="font-medium">📄 Contract B</span>
-              <span className="text-paper/50">View ↗</span>
-            </a>
-          )}
+        <section className="panel">
+          <SectionLabel icon="file">Generated contracts</SectionLabel>
+          <div className="divide-y divide-ink-800 border-t border-ink-800">
+            {links.X && <LinkRow icon="document" label="Contract A" href={links.X} />}
+            {links.Y && <LinkRow icon="document" label="Contract B" href={links.Y} />}
+          </div>
         </section>
       )}
 
       {/* Live signing links. The crew member got these by email; copying one
           lets an admin re-send it over WhatsApp without re-issuing the email. */}
       {(signLinks.X || signLinks.Y) && (
-        <section className="rounded-xl border border-ink-800 divide-y divide-ink-800">
-          <p className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-paper/50">
-            Signing links (phone)
-          </p>
-          {(['X', 'Y'] as ContractType[]).map((type) => {
-            const url = signLinks[type];
-            if (!url) return null;
-            const signed =
-              type === 'X'
-                ? crew.signatures?.contractX?.signed
-                : crew.signatures?.contractY?.signed;
-            return (
-              <div key={type} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                <span className="text-sm font-medium">
-                  ✍️ Contract {type === 'X' ? 'A' : 'B'}
-                  {signed && <span className="ml-2 text-xs text-green-400">signed</span>}
-                </span>
-                <div className="flex shrink-0 gap-2">
-                  <CopyButton value={url} disabled={signed} />
-                  <a
-                    className="rounded-lg border border-ink-600 px-2.5 py-1 text-xs text-paper/80 hover:border-exposure hover:text-exposure"
-                    href={url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open ↗
-                  </a>
+        <section className="panel">
+          <SectionLabel icon="signature">Signing links (phone)</SectionLabel>
+          <div className="divide-y divide-ink-800 border-t border-ink-800">
+            {(['X', 'Y'] as ContractType[]).map((type) => {
+              const url = signLinks[type];
+              if (!url) return null;
+              const label = `Contract ${type === 'X' ? 'A' : 'B'}`;
+              const signed =
+                type === 'X'
+                  ? crew.signatures?.contractX?.signed
+                  : crew.signatures?.contractY?.signed;
+              return (
+                <div key={type} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                  <span className="flex min-w-0 items-center gap-2.5 text-sm font-medium">
+                    <Icon name="signature" className="h-4 w-4 text-paper/[0.55]" />
+                    {label}
+                    {signed && (
+                      <span className="chip border-ok/25 bg-ok/10 text-ok">signed</span>
+                    )}
+                  </span>
+                  <div className="flex shrink-0 gap-2">
+                    <CopyButton value={url} disabled={signed} />
+                    <a
+                      className="btn btn-sm border border-ink-600 bg-ink-850/60 font-medium text-paper/[0.82] hover:border-exposure hover:text-exposure"
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Open the signing link for ${label}`}
+                    >
+                      Open
+                      <Icon name="external" className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </section>
       )}
 
       {/* Signed copies, filed automatically however they arrived. */}
       {signedAny && (
-        <section className="rounded-xl border border-ink-800 divide-y divide-ink-800">
-          <p className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-paper/50">
-            Signed contracts
-          </p>
-          {(['X', 'Y'] as ContractType[]).map((type) => {
-            const sig =
-              type === 'X' ? crew.signatures?.contractX : crew.signatures?.contractY;
-            if (!sig?.signed) return null;
-            return (
-              <a
-                key={type}
-                className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm hover:bg-ink-800"
-                href={sig.driveLink ?? '#'}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <span>
-                  <span className="font-medium">✅ Contract {type === 'X' ? 'A' : 'B'}</span>
-                  <span className="ml-2 text-xs text-paper/50">
-                    {methodLabel(sig.method)}
-                    {sig.timestamp ? ` · ${new Date(sig.timestamp).toLocaleDateString()}` : ''}
-                  </span>
-                </span>
-                <span className="shrink-0 text-paper/50">View ↗</span>
-              </a>
-            );
-          })}
+        <section className="panel">
+          <SectionLabel icon="checkCircle">Signed contracts</SectionLabel>
+          <div className="divide-y divide-ink-800 border-t border-ink-800">
+            {(['X', 'Y'] as ContractType[]).map((type) => {
+              const sig =
+                type === 'X' ? crew.signatures?.contractX : crew.signatures?.contractY;
+              if (!sig?.signed) return null;
+              return (
+                <LinkRow
+                  key={type}
+                  icon="checkCircle"
+                  tone="ok"
+                  label={`Contract ${type === 'X' ? 'A' : 'B'}`}
+                  meta={`${methodLabel(sig.method)}${
+                    sig.timestamp ? ` · ${new Date(sig.timestamp).toLocaleDateString()}` : ''
+                  }`}
+                  href={sig.driveLink ?? '#'}
+                />
+              );
+            })}
+          </div>
         </section>
-      )}
-
-      {/* Which contract(s) to act on. Every PDF is bilingual (EN | AR). */}
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-sm text-paper/60">Apply to</span>
-        <div className="flex overflow-hidden rounded-xl border border-ink-600">
-          {SCOPES.map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              onClick={() => setScopeKey(s.key)}
-              className={`px-4 py-2 text-sm ${
-                scopeKey === s.key ? 'bg-exposure text-ink-950' : 'text-paper/70 hover:bg-ink-800'
-              }`}
-            >
-              {s.key === 'both' ? 'Both' : s.key}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid gap-2 sm:grid-cols-2">
-        <button
-          className="btn-ghost w-full"
-          disabled={busy || !ready}
-          onClick={onGenerate}
-          title={ready ? 'Build the PDF(s) and view them — nothing is sent' : 'Set role, amount(s), dates and IBAN first'}
-        >
-          {busy ? 'Working…' : `📄 Generate & View (${scope.key === 'both' ? 'A+B' : scope.key})`}
-        </button>
-        <button
-          className="btn-primary w-full"
-          disabled={busy || !ready}
-          onClick={onSend}
-          title={
-            ready
-              ? 'Email each contract separately: the PDF attached, plus a link to sign on a phone'
-              : 'Set role, amount(s), dates and IBAN first'
-          }
-        >
-          {busy
-            ? 'Working…'
-            : `${alreadySent ? '🔄 Resend' : '✉️ Email'} ${scope.key === 'both' ? 'A+B' : scope.key} for signature`}
-        </button>
-      </div>
-      {!ready && (
-        <p className="-mt-1 text-center text-xs text-paper/50">
-          Set role, the selected amount(s), dates and IBAN to enable generating or sending.
-        </p>
-      )}
-
-      {/* Company stamp — only meaningful once at least one contract is signed. */}
-      {signedAny && (
-        <button className="btn-ghost w-full" disabled={busy} onClick={onStamp}>
-          {busy ? 'Working…' : '🏷️ Apply company stamp to signed contract(s)'}
-        </button>
       )}
 
       {(stampLinks.X || stampLinks.Y) && (
-        <section className="rounded-xl border border-ink-800 divide-y divide-ink-800">
-          <p className="px-4 py-2 text-xs font-medium uppercase tracking-wide text-paper/50">
-            Stamped contracts
-          </p>
-          {stampLinks.X && (
-            <a
-              className="flex items-center justify-between px-4 py-2.5 text-sm hover:bg-ink-800"
-              href={stampLinks.X}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <span className="font-medium">🏷️ Contract A (stamped)</span>
-              <span className="text-paper/50">View ↗</span>
-            </a>
-          )}
-          {stampLinks.Y && (
-            <a
-              className="flex items-center justify-between px-4 py-2.5 text-sm hover:bg-ink-800"
-              href={stampLinks.Y}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <span className="font-medium">🏷️ Contract B (stamped)</span>
-              <span className="text-paper/50">View ↗</span>
-            </a>
-          )}
+        <section className="panel">
+          <SectionLabel icon="stamp">Stamped contracts</SectionLabel>
+          <div className="divide-y divide-ink-800 border-t border-ink-800">
+            {stampLinks.X && (
+              <LinkRow icon="stamp" label="Contract A (stamped)" href={stampLinks.X} />
+            )}
+            {stampLinks.Y && (
+              <LinkRow icon="stamp" label="Contract B (stamped)" href={stampLinks.Y} />
+            )}
+          </div>
         </section>
       )}
+
+      {/*
+        The action bar. Scope first, then the two actions it governs — reading
+        top to bottom gives you "apply to [both] → [generate | send]", which is
+        the order the decision is actually made in. Every PDF is bilingual.
+      */}
+      <section className="rounded-2xl border border-ink-700 bg-ink-900/60 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-medium text-paper/[0.72]">Apply to</span>
+          <div className="segmented" role="group" aria-label="Which contract to act on">
+            {SCOPES.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => setScopeKey(s.key)}
+                aria-pressed={scopeKey === s.key}
+                className="segmented-item"
+              >
+                {s.key === 'both' ? 'Both' : s.key}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            className="btn-ghost w-full"
+            disabled={busy || !ready}
+            onClick={onGenerate}
+            title={
+              ready
+                ? 'Build the PDF(s) and view them — nothing is sent'
+                : 'Set role, amount(s), dates and IBAN first'
+            }
+          >
+            {busy ? <Spinner /> : <Icon name="file" className="h-4 w-4" />}
+            {busy ? 'Working…' : `Generate & view (${scopeSuffix})`}
+          </button>
+          <button
+            className="btn-primary w-full"
+            disabled={busy || !ready}
+            onClick={onSend}
+            title={
+              ready
+                ? 'Email each contract separately: the PDF attached, plus a link to sign on a phone'
+                : 'Set role, amount(s), dates and IBAN first'
+            }
+          >
+            {busy ? (
+              <Spinner />
+            ) : (
+              <Icon name={alreadySent ? 'refresh' : 'send'} className="h-4 w-4" />
+            )}
+            {busy
+              ? 'Working…'
+              : `${alreadySent ? 'Resend' : 'Email'} ${scopeSuffix} for signature`}
+          </button>
+        </div>
+
+        {!ready && (
+          <p className="mt-3 flex items-start gap-1.5 text-xs text-warn">
+            <Icon name="info" className="mt-px h-3.5 w-3.5" />
+            Set role, the selected amount(s), dates and IBAN to enable generating or
+            sending.
+          </p>
+        )}
+
+        {/* Company stamp — only meaningful once at least one contract is signed. */}
+        {signedAny && (
+          <button className="btn-ghost mt-2 w-full" disabled={busy} onClick={onStamp}>
+            {busy ? <Spinner /> : <Icon name="stamp" className="h-4 w-4" />}
+            {busy ? 'Working…' : 'Apply company stamp to signed contract(s)'}
+          </button>
+        )}
+      </section>
 
       <FieldsModal
         open={editing}
         crew={crew}
         busy={busy}
         onClose={() => setEditing(false)}
-        onSave={(patch) => run(() => updateCrew(crew.id, patch), 'Contract fields saved ✓')}
+        onSave={(patch) => run(() => updateCrew(crew.id, patch), 'Contract fields saved.')}
       />
     </div>
   );
@@ -522,17 +575,21 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
 function Field({
   label,
   hint,
+  htmlFor,
   children,
 }: {
   label: string;
   hint?: string;
+  htmlFor?: string;
   children: ReactNode;
 }) {
   return (
     <div>
-      <label className="field-label">{label}</label>
+      <label className="field-label" htmlFor={htmlFor}>
+        {label}
+      </label>
       {children}
-      {hint && <p className="mt-1 text-xs text-paper/45">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-paper/[0.55]">{hint}</p>}
     </div>
   );
 }
@@ -600,19 +657,28 @@ function FieldsModal({
 
   return (
     <Modal open={open} title="Edit contract fields" onClose={onClose}>
-      <p className="-mt-1 mb-4 text-sm text-paper/55">
-        These values are printed on the bilingual contract and pre-filled into the
-        signing request. Leave a document/identity field as-is to keep the crew's
-        submitted value.
+      <p className="-mt-1 mb-5 flex items-start gap-2 rounded-xl border border-ink-700 bg-ink-850/60 px-3.5 py-3 text-sm leading-relaxed text-paper/[0.72]">
+        <Icon name="info" className="mt-0.5 h-4 w-4 text-exposure" />
+        <span>
+          These values are printed on the bilingual contract and pre-filled into the
+          signing request. Leave a document/identity field as-is to keep the crew&apos;s
+          submitted value.
+        </span>
       </p>
 
       <div className="grid gap-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Name on contract">
-            <input className="field-input" value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
-          <Field label="Role">
+          <Field label="Name on contract" htmlFor="f-name">
             <input
+              id="f-name"
+              className="field-input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </Field>
+          <Field label="Role" htmlFor="f-role">
+            <input
+              id="f-role"
               className="field-input"
               list="role-suggestions"
               value={role}
@@ -630,8 +696,13 @@ function FieldsModal({
           </Field>
         </div>
 
-        <Field label="Project name" hint="Leave blank to use the crew's project name.">
+        <Field
+          label="Project name"
+          htmlFor="f-project"
+          hint="Leave blank to use the crew's project name."
+        >
           <input
+            id="f-project"
             className="field-input"
             value={project}
             onChange={(e) => setProject(e.target.value)}
@@ -640,9 +711,10 @@ function FieldsModal({
         </Field>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Amount A — Contract X (AED)">
+          <Field label="Amount A — Contract X (AED)" htmlFor="f-amount-x">
             <input
-              className="field-input"
+              id="f-amount-x"
+              className="field-input nums"
               type="number"
               min={0}
               dir="ltr"
@@ -650,9 +722,10 @@ function FieldsModal({
               onChange={(e) => setAmountX(e.target.value)}
             />
           </Field>
-          <Field label="Amount B — Contract Y (AED)">
+          <Field label="Amount B — Contract Y (AED)" htmlFor="f-amount-y">
             <input
-              className="field-input"
+              id="f-amount-y"
+              className="field-input nums"
               type="number"
               min={0}
               dir="ltr"
@@ -663,8 +736,9 @@ function FieldsModal({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Start date">
+          <Field label="Start date" htmlFor="f-date-from">
             <input
+              id="f-date-from"
               className="field-input"
               type="date"
               dir="ltr"
@@ -672,41 +746,59 @@ function FieldsModal({
               onChange={(e) => setDateFrom(e.target.value)}
             />
           </Field>
-          <Field label="End date">
+          <Field label="End date" htmlFor="f-date-to">
             <input
+              id="f-date-to"
               className={`field-input ${!datesValid ? 'field-input-error' : ''}`}
               type="date"
               dir="ltr"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
+              aria-invalid={!datesValid || undefined}
+              aria-describedby={!datesValid ? 'f-date-error' : undefined}
             />
           </Field>
         </div>
-        {!datesValid && <p className="-mt-2 field-error">End date must be on or after start date.</p>}
+        {!datesValid && (
+          <p id="f-date-error" className="-mt-2 field-error" role="alert">
+            <Icon name="alert" className="mt-0.5 h-3.5 w-3.5" />
+            End date must be on or after start date.
+          </p>
+        )}
 
-        <Field label="IBAN" hint="UAE IBAN — AE followed by 21 digits.">
+        <Field label="IBAN" htmlFor="f-iban" hint="UAE IBAN — AE followed by 21 digits.">
           <input
-            className={`field-input ${!ibanValid ? 'field-input-error' : ''}`}
+            id="f-iban"
+            className={`field-input nums ${!ibanValid ? 'field-input-error' : ''}`}
             dir="ltr"
             value={iban}
             onChange={(e) => setIban(e.target.value)}
             placeholder="AE________________________"
+            aria-invalid={!ibanValid || undefined}
+            aria-describedby={!ibanValid ? 'f-iban-error' : undefined}
           />
         </Field>
-        {!ibanValid && <p className="-mt-2 field-error">Enter a valid UAE IBAN (AE + 21 digits).</p>}
+        {!ibanValid && (
+          <p id="f-iban-error" className="-mt-2 field-error" role="alert">
+            <Icon name="alert" className="mt-0.5 h-3.5 w-3.5" />
+            Enter a valid UAE IBAN (AE + 21 digits).
+          </p>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Emirates ID">
+          <Field label="Emirates ID" htmlFor="f-eid">
             <input
-              className="field-input"
+              id="f-eid"
+              className="field-input nums"
               dir="ltr"
               value={emiratesId}
               onChange={(e) => setEmiratesId(e.target.value)}
               placeholder="784-YYYY-NNNNNNN-C"
             />
           </Field>
-          <Field label="Passport">
+          <Field label="Passport" htmlFor="f-passport">
             <input
+              id="f-passport"
               className="field-input"
               dir="ltr"
               value={passport}
@@ -715,8 +807,9 @@ function FieldsModal({
           </Field>
         </div>
 
-        <Field label="Nationality">
+        <Field label="Nationality" htmlFor="f-nationality">
           <input
+            id="f-nationality"
             className="field-input"
             value={nationality}
             onChange={(e) => setNationality(e.target.value)}
@@ -724,11 +817,12 @@ function FieldsModal({
         </Field>
       </div>
 
-      <div className="mt-5 flex gap-2">
+      <div className="mt-6 flex gap-2 border-t border-ink-800 pt-5">
         <button className="btn-ghost flex-1" onClick={onClose} disabled={busy}>
           Cancel
         </button>
         <button className="btn-primary flex-1" disabled={!canSave} onClick={submit}>
+          {busy ? <Spinner /> : <Icon name="check" className="h-4 w-4" />}
           {busy ? 'Saving…' : 'Save fields'}
         </button>
       </div>

@@ -18,6 +18,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { Icon } from '@/components/ui/Icon';
 
 export interface SignaturePadHandle {
   isEmpty: () => boolean;
@@ -152,7 +153,17 @@ export const SignaturePad = forwardRef<
 
   return (
     <div>
-      <div className="relative overflow-hidden rounded-2xl border-2 border-dashed border-ink-600 bg-paper">
+      {/*
+        The pad is the one bright surface in a dark app, deliberately: it is a
+        sheet of paper, and ink reads as ink on it. The border turns amber once
+        something has been drawn, so "this box is now filled in" is legible at
+        a glance while scrolling past on a phone.
+      */}
+      <div
+        className={`relative overflow-hidden rounded-2xl border-2 bg-paper shadow-lift transition-colors duration-300 ${
+          hasInk ? 'border-solid border-exposure' : 'border-dashed border-ink-600'
+        }`}
+      >
         <canvas
           ref={canvasRef}
           onPointerDown={start}
@@ -160,25 +171,31 @@ export const SignaturePad = forwardRef<
           onPointerUp={end}
           onPointerLeave={end}
           onPointerCancel={end}
-          className="block h-[190px] w-full"
+          className="block h-[190px] w-full touch-none"
           style={{ touchAction: 'none' }}
           aria-label="Signature area"
         />
+        {/* Signature rule, like the line on a printed contract. */}
         <div className="pointer-events-none absolute inset-x-6 bottom-10 border-b border-ink-500/40" />
         {!hasInk && (
-          <div className="pointer-events-none absolute inset-0 grid place-items-center">
-            <span className="text-sm text-ink-500">Sign here with your finger</span>
+          <div className="pointer-events-none absolute inset-0 grid place-items-center gap-1.5">
+            <span className="flex flex-col items-center gap-1.5 text-ink-500">
+              <Icon name="signature" className="h-6 w-6" />
+              <span className="text-sm font-medium">Sign here with your finger</span>
+            </span>
           </div>
         )}
       </div>
-      <div className="mt-2 flex items-center justify-between gap-3">
-        <p className="text-xs text-paper/50">Use your finger, a stylus or the mouse.</p>
+
+      <div className="mt-2.5 flex items-center justify-between gap-3">
+        <p className="text-xs text-paper/[0.55]">Use your finger, a stylus or the mouse.</p>
         <button
           type="button"
           onClick={clear}
           disabled={disabled || !hasInk}
-          className="rounded-lg border border-ink-600 px-3 py-1.5 text-xs font-medium text-paper/80 transition hover:border-exposure hover:text-exposure disabled:opacity-40"
+          className="btn btn-sm border border-ink-600 font-medium text-paper/[0.82] transition hover:border-danger hover:text-danger disabled:opacity-40"
         >
+          <Icon name="refresh" className="h-3.5 w-3.5" />
           Clear
         </button>
       </div>

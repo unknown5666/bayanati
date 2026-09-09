@@ -16,6 +16,9 @@ import {
   validateRequired,
 } from '@/lib/validation';
 import { submitCrew, type CrewFormData } from '@/lib/submit-crew';
+import { Icon } from '@/components/ui/Icon';
+import { Spinner } from '@/components/ui/Spinner';
+import { Alert } from '@/components/ui/Alert';
 
 type Errors = Partial<Record<keyof CrewFormData, string>>;
 
@@ -43,6 +46,8 @@ export function CrewForm() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string>('');
   const [done, setDone] = useState(false);
+
+  const rtl = dir(lang) === 'rtl';
 
   const steps = [
     t(lang, 'step_personal'),
@@ -111,32 +116,36 @@ export function CrewForm() {
 
   if (done) {
     return (
-      <div dir={dir(lang)} className="card mx-auto max-w-md p-8 text-center">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-exposure text-2xl text-ink-950">
-          ✓
-        </div>
-        <h2 className="text-2xl font-bold">{t(lang, 'success_title')}</h2>
-        <p className="mt-3 text-paper/70">{t(lang, 'success_body')}</p>
+      <div
+        dir={dir(lang)}
+        className="card mx-auto mt-10 max-w-md p-8 text-center animate-scale-in"
+      >
+        <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-exposure-gradient text-ink-950 shadow-flare-lg">
+          <Icon name="check" className="h-8 w-8" strokeWidth={3} />
+        </span>
+        <h2 className="mt-5 text-2xl text-display">{t(lang, 'success_title')}</h2>
+        <p className="mt-3 leading-relaxed text-paper/[0.72]">{t(lang, 'success_body')}</p>
       </div>
     );
   }
 
   return (
-    <div dir={dir(lang)} className="mx-auto max-w-xl">
-      {/* Sticky language selector */}
-      <div className="sticky top-0 z-10 -mx-4 mb-4 flex items-center justify-between border-b border-ink-800 bg-ink-950/90 px-4 py-3 backdrop-blur">
-        <span className="text-sm font-semibold text-paper/70">{t(lang, 'form_title')}</span>
-        <div className="flex gap-1" role="group" aria-label={t(lang, 'select_language')}>
+    <div dir={dir(lang)} className="mx-auto max-w-xl pb-10">
+      {/* Language switch stays reachable at every step — someone who realises
+          at step 3 that they would rather read Arabic should not have to
+          start over to change it. */}
+      <div className="sticky top-[var(--header-h)] z-30 -mx-4 mb-5 flex items-center justify-between gap-3 border-b border-ink-800/70 bg-ink-950/85 px-4 py-2.5 backdrop-blur-xl">
+        <span className="flex items-center gap-1.5 truncate text-sm font-semibold text-paper/[0.72]">
+          <Icon name="globe" className="h-4 w-4" />
+          <span className="truncate">{t(lang, 'form_title')}</span>
+        </span>
+        <div className="segmented shrink-0" role="group" aria-label={t(lang, 'select_language')}>
           {LANGUAGES.map((l) => (
             <button
               key={l.code}
               type="button"
               onClick={() => setLang(l.code)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                lang === l.code
-                  ? 'bg-exposure text-ink-950'
-                  : 'text-paper/70 hover:bg-ink-800'
-              }`}
+              className="segmented-item"
               aria-pressed={lang === l.code}
             >
               {l.label}
@@ -145,18 +154,18 @@ export function CrewForm() {
         </div>
       </div>
 
-      <div className="mb-2 text-center">
-        <h1 className="text-2xl font-bold">{t(lang, 'form_title')}</h1>
-        <p className="mt-1 text-sm text-paper/60">{t(lang, 'form_subtitle')}</p>
+      <div className="mb-6 text-center">
+        <h1 className="text-3xl text-display">{t(lang, 'form_title')}</h1>
+        <p className="mt-1.5 text-sm text-paper/[0.72]">{t(lang, 'form_subtitle')}</p>
       </div>
 
-      <div className="mb-6">
+      <div className="mb-7">
         <Stepper steps={steps} current={step} />
       </div>
 
       <div className="card p-5 sm:p-6">
         {step === 0 && (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div key="step-0" className="grid gap-4 animate-rise-in sm:grid-cols-2">
             <Field
               label={t(lang, 'first_name')}
               name="firstName"
@@ -217,7 +226,7 @@ export function CrewForm() {
         )}
 
         {step === 1 && (
-          <div className="grid gap-4">
+          <div key="step-1" className="grid gap-4 animate-rise-in">
             <Field
               label={t(lang, 'emirates_id')}
               name="emiratesId"
@@ -270,7 +279,7 @@ export function CrewForm() {
         )}
 
         {step === 2 && (
-          <div className="grid gap-4">
+          <div key="step-2" className="grid gap-4 animate-rise-in">
             <Field
               label={t(lang, 'iban')}
               name="iban"
@@ -285,27 +294,33 @@ export function CrewForm() {
         )}
 
         {step === 3 && (
-          <Review lang={lang} data={data} />
+          <div key="step-3" className="animate-rise-in">
+            <Review lang={lang} data={data} />
+          </div>
         )}
 
         {submitError && (
-          <p className="mt-4 rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <Alert tone="error" className="mt-4">
             {submitError}
-          </p>
+          </Alert>
         )}
 
-        <div className="mt-6 flex items-center justify-between gap-3">
+        <div className="mt-7 flex items-center justify-between gap-3 border-t border-ink-800 pt-5">
           <button
             type="button"
             onClick={back}
             disabled={step === 0 || submitting}
             className="btn-ghost"
           >
+            {/* The arrow follows reading direction, so it points back towards
+                the start in Arabic too. */}
+            <Icon name={rtl ? 'arrowRight' : 'arrowLeft'} className="h-4 w-4" />
             {t(lang, 'back')}
           </button>
           {step < 3 ? (
             <button type="button" onClick={next} className="btn-primary">
               {t(lang, 'next')}
+              <Icon name={rtl ? 'arrowLeft' : 'arrowRight'} className="h-4 w-4" />
             </button>
           ) : (
             <button
@@ -314,6 +329,7 @@ export function CrewForm() {
               disabled={submitting}
               className="btn-primary"
             >
+              {submitting ? <Spinner /> : <Icon name="send" className="h-4 w-4" />}
               {submitting ? t(lang, 'submitting') : t(lang, 'submit')}
             </button>
           )}
@@ -337,13 +353,19 @@ function Review({ lang, data }: { lang: Language; data: CrewFormData }) {
   ];
   return (
     <div>
-      <h2 className="text-lg font-semibold">{t(lang, 'review_title')}</h2>
-      <p className="mt-1 text-sm text-paper/60">{t(lang, 'review_hint')}</p>
-      <dl className="mt-4 divide-y divide-ink-800 rounded-xl border border-ink-800">
+      <h2 className="flex items-center gap-2 text-lg font-semibold">
+        <Icon name="checkCircle" className="h-5 w-5 text-exposure" />
+        {t(lang, 'review_title')}
+      </h2>
+      <p className="mt-1 text-sm text-paper/[0.72]">{t(lang, 'review_hint')}</p>
+      <dl className="mt-4 divide-y divide-ink-800 overflow-hidden rounded-xl border border-ink-800 bg-ink-900/40">
         {rows.map(([k, v]) => (
-          <div key={k} className="flex items-center justify-between gap-4 px-4 py-2.5">
-            <dt className="text-sm text-paper/60">{k}</dt>
-            <dd className="text-sm font-medium" dir="ltr">
+          <div key={k} className="flex items-center justify-between gap-4 px-4 py-3">
+            <dt className="shrink-0 text-sm text-paper/[0.72]">{k}</dt>
+            <dd
+              className={`min-w-0 truncate text-sm font-medium ${v ? '' : 'text-paper/[0.55]'}`}
+              dir="ltr"
+            >
               {v || '—'}
             </dd>
           </div>
