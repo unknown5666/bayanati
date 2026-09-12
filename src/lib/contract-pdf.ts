@@ -281,6 +281,27 @@ function shapeArabicLine(line: string, reshape: (s: string) => string): string {
     .join('');
 }
 
+/**
+ * The mirror of `shapeArabicLine`, for a line whose base direction is LTR (the
+ * English column). Intake fields are free text, so an Arabic value can land
+ * there — a nationality typed as "سوريا", say. Reshape to contextual forms and
+ * pre-reverse each ARABIC run to cancel the viewer's bidi, which reverses RTL
+ * runs inside an LTR line. Latin runs keep their order.
+ */
+function shapeArabicInLatinLine(line: string, reshape: (s: string) => string): string {
+  const reshaped = reshape(line);
+  const runs: Array<{ ar: boolean; text: string }> = [];
+  for (const ch of Array.from(reshaped)) {
+    const ar = isArabicChar(ch);
+    const last = runs[runs.length - 1];
+    if (last && last.ar === ar) last.text += ch;
+    else runs.push({ ar, text: ch });
+  }
+  return runs
+    .map((r) => (r.ar ? Array.from(r.text).reverse().join('') : r.text))
+    .join('');
+}
+
 async function embedArabicFont(pdf: PDFDocument): Promise<PDFFont> {
   const fontkit = (await import('@pdf-lib/fontkit')).default;
   pdf.registerFontkit(fontkit);
@@ -352,6 +373,22 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
     );
   }
   const shapeAr = (s: string): string => shapeArabicLine(s, reshape);
+  const shapeLtr = (s: string): string => shapeArabicInLatinLine(s, reshape);
+
+  // Helvetica is WinAnsi-encoded and pdf-lib throws on any character outside
+  // that set, so a single Arabic value typed into the intake form used to abort
+  // the whole contract run. Amiri covers Latin AND Arabic, so fall back to it
+  // for exactly the text the standard font cannot encode.
+  const canEncode = (f: PDFFont, text: string): boolean => {
+    try {
+      f.encodeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const latinFontFor = (text: string, f: PDFFont): PDFFont =>
+    canEncode(f, text) ? f : arabic;
 
   const page = pdf.addPage([A4.w, A4.h]);
   const centerX = A4.w / 2;
@@ -416,8 +453,9 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
       let line = '';
       for (const word of words) {
         const trial = line ? `${line} ${word}` : word;
-        const measured = rtl ? shapeAr(trial) : trial;
-        if (f.widthOfTextAtSize(measured, size) > colW && line) {
+        const eff = rtl ? f : latinFontFor(trial, f);
+        const measured = rtl ? shapeAr(trial) : eff === f ? trial : shapeLtr(trial);
+        if (eff.widthOfTextAtSize(measured, size) > colW && line) {
           lines.push(line);
           line = word;
         } else {
@@ -429,9 +467,10 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
     };
 
     const drawColLine = (text: string, size: number, f: PDFFont, color = INK) => {
-      const shaped = rtl ? shapeAr(text) : text;
-      const w = f.widthOfTextAtSize(shaped, size);
-      page.drawText(shaped, { x: rtl ? x1 - w : x0, y, size, font: f, color });
+      const eff = rtl ? f : latinFontFor(text, f);
+      const shaped = rtl ? shapeAr(text) : eff === f ? text : shapeLtr(text);
+      const w = eff.widthOfTextAtSize(shaped, size);
+      page.drawText(shaped, { x: rtl ? x1 - w : x0, y, size, font: eff, color });
       y -= size * LH;
     };
 
@@ -580,12 +619,18 @@ export async function generateContractPdf(opts: GenerateOptions): Promise<Uint8A
   });
 
   // Footer note.
-  const footer = `${placeholders.CREW_NAME} · ${placeholders.PROJECT_NAME}`;
+  // Crew and project names are free text, so they may be Arabic — same font
+  // fallback as the English column.
+  const footerFont = latinFontFor(`${placeholders.CREW_NAME} · ${placeholders.PROJECT_NAME}`, latinBold);
+  const footer =
+    footerFont === latinBold
+      ? `${placeholders.CREW_NAME} · ${placeholders.PROJECT_NAME}`
+      : shapeLtr(`${placeholders.CREW_NAME} · ${placeholders.PROJECT_NAME}`);
   page.drawText(footer, {
-    x: centerX - latinBold.widthOfTextAtSize(footer, 7.5) / 2,
+    x: centerX - footerFont.widthOfTextAtSize(footer, 7.5) / 2,
     y: MARGIN - 22,
     size: 7.5,
-    font: latinBold,
+    font: footerFont,
     color: GREY,
   });
 

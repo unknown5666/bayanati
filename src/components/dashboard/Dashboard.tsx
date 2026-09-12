@@ -20,6 +20,7 @@ import {
   stampContracts,
   type ContractType,
 } from '@/lib/api-client';
+import { downloadIbanCsv } from '@/lib/export-crew';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { Spinner } from '@/components/ui/Spinner';
 import { Alert } from '@/components/ui/Alert';
@@ -232,6 +233,33 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
     });
   }, [crew, search, status, projectFilter, projectsById]);
 
+  /**
+   * Name + IBAN (and the rest of what a payment run needs) as a CSV. Everything
+   * is already in memory, so this is instant and needs no API call. `subset` is
+   * the current selection when there is one, otherwise the whole crew list.
+   */
+  function onExportIbans(subset: CrewMember[], hint: string) {
+    setBulkMsg(null);
+    try {
+      const { count, skipped } = downloadIbanCsv(subset, projectsById, hint);
+      if (!count) {
+        setBulkMsg({ kind: 'err', text: 'Nobody in that list has an IBAN on file yet.' });
+        return;
+      }
+      setBulkMsg({
+        kind: 'ok',
+        text:
+          `Downloaded ${count} IBAN${count === 1 ? '' : 's'}.` +
+          (skipped ? ` ${skipped} skipped — no IBAN on file.` : ''),
+      });
+    } catch (err) {
+      setBulkMsg({
+        kind: 'err',
+        text: err instanceof Error ? err.message : 'Export failed',
+      });
+    }
+  }
+
   const selected = crew.find((c) => c.id === selectedId) ?? null;
   const filtersActive = search.trim() !== '' || status !== 'all' || projectFilter !== 'all';
 
@@ -268,6 +296,16 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
           >
             <Icon name="upload" className="h-4 w-4" />
             <span className="hidden sm:inline">Import sheet</span>
+          </button>
+          <button
+            className="btn-ghost btn-sm"
+            onClick={() => onExportIbans(crew, 'all-crew')}
+            disabled={loading || crew.length === 0}
+            aria-label="Export IBANs"
+            title="Download a CSV of name and IBAN for every crew member who has one on file"
+          >
+            <Icon name="download" className="h-4 w-4" />
+            <span className="hidden sm:inline">Export IBANs</span>
           </button>
           <button
             className="btn-ghost btn-sm"
@@ -469,6 +507,14 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
               title="Download the signed (or stamped) PDFs as a single ZIP"
             >
               Signed ZIP
+            </BulkBtn>
+            <BulkBtn
+              icon="download"
+              disabled={Boolean(bulkBusy)}
+              onClick={() => onExportIbans(selectedCrew, 'selected-crew')}
+              title="Download name and IBAN for the selected crew as a CSV"
+            >
+              Export IBANs
             </BulkBtn>
             <BulkBtn
               icon="edit"
