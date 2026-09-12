@@ -6,7 +6,18 @@ import { authHeader } from './use-admin-auth';
 
 async function post<T>(url: string, body: unknown): Promise<T> {
   const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
-  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  } catch {
+    // fetch only rejects when no response arrived at all. The browser's own
+    // message for that is "Failed to fetch", which tells an admin nothing —
+    // say what actually happened and what to do about it.
+    throw new Error(
+      'The server did not respond — the request may have taken too long, or the ' +
+        'connection dropped. Try again with fewer crew selected.',
+    );
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
   return data as T;
@@ -137,6 +148,8 @@ export interface BulkUpdateResult {
   name: string;
   ok: boolean;
   error?: string;
+  /** The edit was saved, but the Drive folder could not be moved. */
+  driveError?: string;
 }
 
 export interface BulkPatch {
@@ -149,12 +162,57 @@ export interface BulkPatch {
   iban?: string;
 }
 
-/** Apply the same fields (and/or project) to many crew at once. */
-export function bulkUpdateCrew(crewIds: string[], patch: BulkPatch) {
-  return post<{ ok: boolean; results: BulkUpdateResult[] }>('/api/crew/bulk-update', {
-    crewIds,
-    patch,
-  });
+/**
+ * Apply the same fields (and/or project) to many crew at once.
+ *
+ * Sent in small batches rather than one request. Setting a project moves each
+ * crew member's Drive folder, which is several Drive round trips per person, so
+ * one request covering a whole unit easily outlives a proxy's idle timeout —
+ * which reaches the browser as a bare "Failed to fetch" with no way to tell
+ * what was written. Batching keeps every request short, and a batch that does
+ * fail only costs the crew inside it.
+ */
+export async function bulkUpdateCrew(
+  crewIds: string[],
+  patch: BulkPatch,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ ok: boolean; driveFailures: number; results: BulkUpdateResult[] }> {
+  // A project change is the slow path; field-only edits are one DB write each.
+  const size = patch.projectName ? 5 : 40;
+  const results: BulkUpdateResult[] = [];
+  let driveFailures = 0;
+
+  for (let i = 0; i < crewIds.length; i += size) {
+    const batch = crewIds.slice(i, i + size);
+    try {
+      const res = await post<{
+        ok: boolean;
+        driveFailures?: number;
+        results: BulkUpdateResult[];
+      }>('/api/crew/bulk-update', { crewIds: batch, patch });
+      results.push(...res.results);
+      driveFailures += res.driveFailures ?? 0;
+    } catch (err) {
+      // A failed batch must not discard the batches that already succeeded —
+      // report it per crew member and carry on.
+      const message = err instanceof Error ? err.message : 'failed';
+      // A bad patch (invalid IBAN, unusable project name) fails identically for
+      // every batch, so stop rather than replay the same error N times.
+      const fatal = /IBAN|project name|Too many|Nothing to update|unauthorized/i.test(
+        message,
+      );
+      for (const crewId of batch) results.push({ crewId, name: crewId, ok: false, error: message });
+      if (fatal) {
+        for (const crewId of crewIds.slice(i + size)) {
+          results.push({ crewId, name: crewId, ok: false, error: message });
+        }
+        break;
+      }
+    }
+    onProgress?.(Math.min(i + size, crewIds.length), crewIds.length);
+  }
+
+  return { ok: results.some((r) => r.ok), driveFailures, results };
 }
 
 export function listProjects() {

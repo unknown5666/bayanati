@@ -10,6 +10,8 @@ import { bulkUpdateCrew, type BulkPatch } from '@/lib/api-client';
 import { Spinner } from '@/components/ui/Spinner';
 import { Alert } from '@/components/ui/Alert';
 
+const NEWLINE = '\n';
+
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div>
@@ -41,6 +43,7 @@ export function BulkEditModal({
   const [amountY, setAmountY] = useState('');
   const [iban, setIban] = useState('');
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Start from a clean slate each time — a bulk write should never carry over
@@ -54,6 +57,7 @@ export function BulkEditModal({
     setAmountX('');
     setAmountY('');
     setIban('');
+    setProgress(null);
     setError(null);
   }, [open]);
 
@@ -78,25 +82,34 @@ export function BulkEditModal({
   async function submit() {
     setBusy(true);
     setError(null);
+    setProgress({ done: 0, total: crewIds.length });
     try {
-      const res = await bulkUpdateCrew(crewIds, patch);
+      const res = await bulkUpdateCrew(crewIds, patch, (done, total) =>
+        setProgress({ done, total }),
+      );
       const ok = res.results.filter((r) => r.ok);
       const failed = res.results.filter((r) => !r.ok);
       let text = `Updated ${ok.length} of ${res.results.length} crew`;
-      text += patch.projectName ? ` · project set to “${patch.projectName}”` : '';
-      text += patch.projectName ? ' (Drive folders moved too)' : '';
+      if (patch.projectName) text += ` · project set to “${patch.projectName}”`;
       text += '.';
-      if (failed.length) {
-        text += `\nSkipped:\n${failed
-          .slice(0, 8)
-          .map((r) => `• ${r.name}: ${r.error ?? 'failed'}`)
-          .join('\n')}`;
+      // The Drive move is best-effort, so say plainly when it did not happen:
+      // the edit is saved either way, and running this again retries only Drive.
+      if (patch.projectName) {
+        text += res.driveFailures
+          ? ` ${res.driveFailures} Drive folder(s) could not be moved — the project is still set. Run this again to retry.`
+          : ' Drive folders moved too.';
       }
-      onDone(text, failed.length === res.results.length ? 'err' : 'ok');
+      if (failed.length) {
+        const lines = failed.slice(0, 8).map((r) => `• ${r.name}: ${r.error ?? 'failed'}`);
+        if (failed.length > 8) lines.push(`• …and ${failed.length - 8} more`);
+        text += ['', 'Skipped:', ...lines].join(NEWLINE);
+      }
+      onDone(text, ok.length === 0 ? 'err' : 'ok');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Bulk update failed');
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -217,9 +230,19 @@ export function BulkEditModal({
         </button>
         <button className="btn-primary flex-1" disabled={!canSave} onClick={submit}>
           {busy && <Spinner />}
-          {busy ? 'Applying…' : `Apply to ${crewIds.length}`}
+          {busy
+            ? progress && progress.total > progress.done
+              ? `Applying ${progress.done}/${progress.total}…`
+              : 'Applying…'
+            : `Apply to ${crewIds.length}`}
         </button>
       </div>
+      {busy && patch.projectName && (
+        <p className="mt-2 text-center text-xs text-paper/[0.55]" role="status">
+          Moving Drive folders takes a few seconds per crew member — this stays open
+          until it is done.
+        </p>
+      )}
       {!hasChanges && (
         <p className="mt-2 text-center text-xs text-paper/[0.55]">
           Fill in at least one field to enable applying.

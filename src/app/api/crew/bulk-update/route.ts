@@ -13,16 +13,25 @@ import { logAudit } from '@/lib/audit';
 import { validateIban } from '@/lib/validation';
 
 export const runtime = 'nodejs';
-export const maxDuration = 300; // Drive folder moves are one round trip per crew
+export const maxDuration = 300;
 
 // Admin-only bulk edit. Body:
 //   { crewIds: string[], patch: { projectName?, role?, dateFrom?, dateTo?,
 //                                 amountX?, amountY?, iban? } }
 //
-// Setting `projectName` creates the project if needed, reassigns every selected
-// crew member to it, AND moves each one's Google Drive folder under that
-// project — so the Drive tree matches what the dashboard says. Only the keys
-// present in the patch are written; everything else is left alone.
+// ONLY the keys present in the patch are written, as targeted child updates —
+// every other field on the crew member (IBAN, amounts, documents, signatures,
+// generated PDFs) is left exactly as it was.
+//
+// Setting `projectName` also moves each crew member's Google Drive folder under
+// that project so the Drive tree matches the dashboard. That move is several
+// Drive round trips per person, which is slow and can fail on its own (an
+// expired refresh token, a Drive outage). It is therefore best-effort and runs
+// AFTER the database write: the project assignment always lands, and a Drive
+// problem is reported per crew member rather than losing the edit.
+//
+// Callers should send crew in small batches (see bulkUpdateCrew in
+// lib/api-client) so no single request outlives a proxy's idle timeout.
 
 interface BulkPatch {
   projectName?: string;
@@ -32,6 +41,25 @@ interface BulkPatch {
   amountX?: number;
   amountY?: number;
   iban?: string;
+}
+
+/** Give up on a slow Drive call rather than letting the request hang. */
+const DRIVE_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
 
 export async function POST(req: Request) {
@@ -50,7 +78,8 @@ export async function POST(req: Request) {
   if (!crewIds.length) return bad('crewIds required');
   if (crewIds.length > 200) return bad('Too many crew selected (max 200)');
 
-  // Shared contract fields.
+  // Shared contract fields. A blank value means "leave this one alone", so it
+  // never reaches the patch.
   const contractPatch: Record<string, unknown> = {};
   if (patch.role !== undefined && String(patch.role).trim()) {
     contractPatch.role = String(patch.role).trim().slice(0, 120);
@@ -89,7 +118,14 @@ export async function POST(req: Request) {
     return bad('Nothing to update — set a project name or at least one field');
   }
 
-  const results: Array<{ crewId: string; name: string; ok: boolean; error?: string }> = [];
+  const results: Array<{
+    crewId: string;
+    name: string;
+    ok: boolean;
+    error?: string;
+    driveError?: string;
+  }> = [];
+  let driveFailures = 0;
 
   for (const crewId of crewIds) {
     let name = crewId;
@@ -101,24 +137,38 @@ export async function POST(req: Request) {
       }
       name = `${crew.personal.firstName} ${crew.personal.lastName}`.trim() || crewId;
 
-      if (Object.keys(contractPatch).length) await updateContract(crewId, contractPatch);
+      const previousProjectName = projectId ? await getProjectName(crew.projectId) : null;
 
+      // The database write comes first and is the one that must not fail.
+      if (Object.keys(contractPatch).length) await updateContract(crewId, contractPatch);
+      if (projectId) await updateCrew(crewId, { projectId });
+
+      // Drive second, best-effort: the edit is already saved either way.
+      let driveError: string | undefined;
       if (projectId && projectName) {
-        const previousName = await getProjectName(crew.projectId);
-        await updateCrew(crewId, { projectId });
-        // Move the crew member's whole Drive folder under the new project,
-        // adopting whatever legacy layout it is currently in.
-        const folders = await resolveCrewFolder({
-          projectName,
-          crewName: name,
-          legacyProjectNames: [previousName, INTAKE_PROJECT_NAME],
-        });
-        await adminDb()
-          .ref(`crew/${crewId}/documents`)
-          .update({ driveFolder: folders.webViewLink });
+        try {
+          const folders = await withTimeout(
+            resolveCrewFolder({
+              projectName,
+              crewName: name,
+              legacyProjectNames: [previousProjectName, INTAKE_PROJECT_NAME].filter(
+                (p): p is string => Boolean(p),
+              ),
+            }),
+            DRIVE_TIMEOUT_MS,
+            'Drive folder move',
+          );
+          await adminDb()
+            .ref(`crew/${crewId}/documents`)
+            .update({ driveFolder: folders.webViewLink });
+        } catch (err) {
+          driveFailures++;
+          driveError = err instanceof Error ? err.message : 'Drive move failed';
+          console.error('[crew/bulk-update] Drive move failed for', crewId, err);
+        }
       }
 
-      results.push({ crewId, name, ok: true });
+      results.push({ crewId, name, ok: true, driveError });
     } catch (err) {
       results.push({
         crewId,
@@ -138,10 +188,11 @@ export async function POST(req: Request) {
       `${okCount}/${crewIds.length} crew · ` +
       [projectName ? `project="${projectName}"` : null, ...Object.keys(contractPatch)]
         .filter(Boolean)
-        .join(', '),
+        .join(', ') +
+      (driveFailures ? ` · ${driveFailures} Drive folder move(s) failed` : ''),
   });
 
-  return NextResponse.json({ ok: okCount > 0, results });
+  return NextResponse.json({ ok: okCount > 0, driveFailures, results });
 }
 
 function bad(message: string) {
