@@ -26,11 +26,14 @@ export function Modal({
   title,
   onClose,
   children,
+  wide = false,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  /** For dialogs that review a list rather than ask for a few fields. */
+  wide?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreTo = useRef<HTMLElement | null>(null);
@@ -114,7 +117,9 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="card flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-b-none p-0 shadow-float outline-none animate-sheet-up sm:rounded-2xl sm:animate-scale-in"
+        className={`card flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-b-none p-0 shadow-float outline-none animate-sheet-up sm:rounded-2xl sm:animate-scale-in ${
+          wide ? 'max-w-3xl' : 'max-w-lg'
+        }`}
       >
         {/* Drag affordance — reads as a sheet on a phone, hidden on desktop. */}
         <div className="mx-auto mt-2.5 h-1 w-10 shrink-0 rounded-full bg-ink-600 sm:hidden" />

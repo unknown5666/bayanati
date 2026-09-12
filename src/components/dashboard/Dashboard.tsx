@@ -11,6 +11,7 @@ import { Modal } from './Modal';
 import { CrewDetails } from './CrewDetails';
 import { CrewSheet } from './CrewSheet';
 import { BulkEditModal } from './BulkEditModal';
+import { ImportSheetModal } from './ImportSheetModal';
 import { DeleteCrewModal } from './DeleteCrewModal';
 import {
   bulkContracts,
@@ -98,6 +99,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
   const [scopeKey, setScopeKey] = useState<'A' | 'R' | 'both'>('both');
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
@@ -255,6 +257,18 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            className="btn-ghost btn-sm"
+            onClick={() => {
+              setBulkMsg(null);
+              setImportOpen(true);
+            }}
+            aria-label="Import crew sheet"
+            title="Read a production's crew sheet and set contract R amounts, roles and dates from it"
+          >
+            <Icon name="upload" className="h-4 w-4" />
+            <span className="hidden sm:inline">Import sheet</span>
+          </button>
           <button
             className="btn-ghost btn-sm"
             onClick={onCheckInbox}
@@ -561,6 +575,16 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
           // The deleted rows are already gone from the realtime list; drop them
           // from the selection too so the toolbar does not act on ghosts.
           clearSelection();
+        }}
+      />
+
+      <ImportSheetModal
+        open={importOpen}
+        crew={crew}
+        onClose={() => setImportOpen(false)}
+        onDone={(message, kind) => {
+          setImportOpen(false);
+          setBulkMsg({ kind, text: message });
         }}
       />
 

@@ -26,6 +26,7 @@ Everything runs on free tiers. Mobile-first, bilingual (Arabic / English, RTL-aw
 | Admin dashboard (live stats, filters, cards/table) | `/crew/dashboard` | ✅ |
 | Crew details + actions (role, amounts, dates, send) | dashboard modal | ✅ |
 | Admin field updates | `POST /api/crew/update` | ✅ |
+| Import a crew sheet into contract R | `POST /api/crew/import-sheet` | ✅ |
 | Generate + email contracts (PDF attached) | `POST /api/contracts/generate` | ✅ |
 | Crew signing page (phone signature) | `/sign/{token}` | ✅ |
 | Signature submit / contract preview | `POST /api/sign/{token}`, `GET /api/sign/{token}/pdf` | ✅ |
@@ -39,6 +40,34 @@ Everything runs on free tiers. Mobile-first, bilingual (Arabic / English, RTL-aw
 - Emirates ID (15 digits, `784…`, Luhn checksum)
 - IBAN (ISO 13616 MOD-97; UAE length check)
 - Image uploads: JPG/PNG only, < 5 MB
+
+### Importing a crew sheet
+
+**Import sheet** on the dashboard reads a production's own crew sheet (`.xlsx`,
+`.csv` or `.tsv`) and fills contract R from it — the amount, and optionally the
+role and the shoot dates — for each person it can match to a crew record.
+
+The sheet needs a header row with a **NAME** column and an **AMOUNT** column;
+**ROLE**, **START DATE**, **END DATE** and a day count are used when present, and
+the header row may sit under a title or a blank line. `.xlsx` files are read
+directly (`src/lib/xlsx.ts`), with no spreadsheet dependency.
+
+Two things a crew sheet always needs a human for, so the import asks rather than
+guesses:
+
+- **Which person is this?** Names are ranked against the crew list (spelling
+  variants, run-together names, Arabic transliteration), and the best match is
+  pre-selected — but every row's person is a dropdown, and a row nobody confirms
+  is not written.
+- **Which date is this?** Excel silently reads `03/09/2026` as 3 September or 9
+  March depending on the machine that typed it, and one column routinely holds
+  both. Where the sheet's day count settles it, the matching reading is used;
+  where it does not, the row is flagged with both readings and the amounts still
+  import.
+
+Nothing is saved by the upload itself: `POST /api/crew/import-sheet` only parses
+and reports. The confirmed rows are then written through the ordinary
+`POST /api/crew/update`, and contract R can be generated in the same step.
 
 ---
 
