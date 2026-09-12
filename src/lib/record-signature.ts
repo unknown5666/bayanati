@@ -6,8 +6,8 @@ import 'server-only';
 // burns the signing token, writes the audit entry and sends the confirmations.
 
 import { adminDb } from './firebase/admin';
-import { getProjectName, deriveStatus } from './crew-db';
-import { uploadToDrive } from './drive';
+import { getProjectName, deriveStatus, INTAKE_PROJECT_NAME } from './crew-db';
+import { resolveCrewFolder, uploadToFolder } from './drive';
 import { revokeSignToken } from './sign-tokens';
 import { sendSignedConfirmation, sendAdminNotice } from './email';
 import { logAudit } from './audit';
@@ -49,8 +49,13 @@ export async function recordSignedContract(params: {
   const fileName = `Contract - ${first} - ${last} - ${letter} - signed.pdf`;
 
   // 1. File it in the crew member's own contracts folder.
-  const upload = await uploadToDrive({
-    pathSegments: ['Projects', projectName, 'Contracts', 'Signed', crewName],
+  const folders = await resolveCrewFolder({
+    projectName,
+    crewName,
+    legacyProjectNames: [INTAKE_PROJECT_NAME],
+  });
+  const upload = await uploadToFolder({
+    folderId: folders.contractsId,
     fileName,
     mimeType: 'application/pdf',
     data: pdfBytes,

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase/admin';
 import { getProjectName } from '@/lib/crew-db';
-import { uploadToDrive } from '@/lib/drive';
+import { resolveCrewFolder, uploadToFolder } from '@/lib/drive';
 import { logAudit } from '@/lib/audit';
 import {
   validateDob,
@@ -85,20 +85,22 @@ export async function POST(req: Request) {
     const projectId = INTAKE_PROJECT;
     const projectName = await getProjectName(projectId);
     const crewName = `${firstName} ${lastName}`.trim();
-    const basePath = ['Projects', projectName, 'Crew', crewName];
+
+    // One folder per crew member — Projects/{project}/{crew name} — holding a
+    // Documents/ and a Contracts/ subfolder, so everything about a person lives
+    // in a single place an admin can open.
+    const folders = await resolveCrewFolder({ projectName, crewName });
 
     // Upload each image directly to Drive.
     const driveLinks: Record<string, string> = {};
-    let folderId: string | undefined;
     for (const u of files) {
       const data = Buffer.from(await u.file.arrayBuffer());
-      const res = await uploadToDrive({
-        pathSegments: basePath,
+      const res = await uploadToFolder({
+        folderId: folders.documentsId,
         fileName: u.driveName,
         mimeType: u.file.type,
         data,
       });
-      folderId = res.folderId;
       driveLinks[u.field] = res.webViewLink;
     }
 
@@ -117,9 +119,7 @@ export async function POST(req: Request) {
           emiratesIdFront: driveLinks.emiratesIdFront ?? null,
           emiratesIdBack: driveLinks.emiratesIdBack ?? null,
           passportImage: driveLinks.passportImage ?? null,
-          driveFolder: folderId
-            ? `https://drive.google.com/drive/folders/${folderId}`
-            : null,
+          driveFolder: folders.webViewLink,
         },
         contract: { status: 'submitted', language, iban },
         signatures: {

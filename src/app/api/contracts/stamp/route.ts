@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/firebase/admin';
-import { getCrew, getProjectName, updateContract } from '@/lib/crew-db';
-import { downloadFromDrive, uploadToDrive } from '@/lib/drive';
+import {
+  getCrew,
+  getProjectName,
+  updateContract,
+  INTAKE_PROJECT_NAME,
+} from '@/lib/crew-db';
+import { downloadFromDrive, resolveCrewFolder, uploadToFolder } from '@/lib/drive';
 import { applyStampToPdf, loadStampPng } from '@/lib/stamp';
 import { logAudit } from '@/lib/audit';
 import type { ContractType } from '@/lib/types';
@@ -12,7 +17,7 @@ export const maxDuration = 60;
 // Admin-only: apply the company stamp to the SIGNED contract PDFs of one or
 // more crew members. Accepts { crewId } or { crewIds: [...] } (for bulk). For
 // each crew, every already-signed contract (X→A, Y→B) is fetched back from
-// Drive, stamped bottom-left, and re-uploaded under Signed/.
+// Drive, stamped bottom-left, and re-uploaded into the crew member's folder.
 
 export async function POST(req: Request) {
   let admin;
@@ -64,6 +69,12 @@ export async function POST(req: Request) {
       const last = crew.personal.lastName;
       const crewName = `${first} ${last}`.trim();
 
+      const folders = await resolveCrewFolder({
+        projectName,
+        crewName,
+        legacyProjectNames: [INTAKE_PROJECT_NAME],
+      });
+
       const links: Partial<Record<ContractType, string>> = {};
       let stampedCount = 0;
 
@@ -76,8 +87,8 @@ export async function POST(req: Request) {
         const signedPdf = await downloadFromDrive(signature.driveFileId);
         const stamped = await applyStampToPdf(new Uint8Array(signedPdf), stampPng);
         const letter = type === 'X' ? 'A' : 'B';
-        const up = await uploadToDrive({
-          pathSegments: ['Projects', projectName, 'Contracts', 'Signed', crewName],
+        const up = await uploadToFolder({
+          folderId: folders.contractsId,
           fileName: `Contract - ${first} - ${last} - ${letter} - stamped.pdf`,
           mimeType: 'application/pdf',
           data: stamped,

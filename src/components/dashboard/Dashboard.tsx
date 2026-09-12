@@ -4,11 +4,20 @@ import { useMemo, useState } from 'react';
 import { signOut } from 'firebase/auth';
 import { firebaseAuth } from '@/lib/firebase/client';
 import { useCrewList } from '@/lib/use-crew-list';
+import { useProjects, projectLabel } from '@/lib/use-projects';
 import type { ContractStatus, CrewMember } from '@/lib/types';
 import { StatusBadge, statusLabel } from './StatusBadge';
 import { Modal } from './Modal';
 import { CrewDetails } from './CrewDetails';
-import { checkInbox, stampContracts } from '@/lib/api-client';
+import { CrewSheet } from './CrewSheet';
+import { BulkEditModal } from './BulkEditModal';
+import {
+  bulkContracts,
+  checkInbox,
+  downloadContractsZip,
+  stampContracts,
+  type ContractType,
+} from '@/lib/api-client';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { Spinner } from '@/components/ui/Spinner';
 import { Alert } from '@/components/ui/Alert';
@@ -22,6 +31,13 @@ const STATUSES: ContractStatus[] = [
   'signed_x',
   'signed_y',
   'both_signed',
+];
+
+/** Which contract(s) a bulk action applies to. Every PDF is bilingual. */
+const SCOPES: { key: 'A' | 'B' | 'both'; label: string; types: ContractType[] }[] = [
+  { key: 'A', label: 'A', types: ['X'] },
+  { key: 'B', label: 'B', types: ['Y'] },
+  { key: 'both', label: 'A+B', types: ['X', 'Y'] },
 ];
 
 function startOfMonth(): number {
@@ -71,13 +87,19 @@ function Avatar({ crew, className = 'h-11 w-11' }: { crew: CrewMember; className
 
 export function Dashboard({ adminEmail }: { adminEmail: string }) {
   const { crew, loading, error } = useCrewList();
+  const { names: projectNames, byId: projectsById, refresh: refreshProjects } = useProjects();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<ContractStatus | 'all'>('all');
-  const [view, setView] = useState<'cards' | 'table'>('cards');
+  const [projectFilter, setProjectFilter] = useState('all');
+  const [view, setView] = useState<'cards' | 'table' | 'sheet'>('sheet');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkBusy, setBulkBusy] = useState(false);
+  const [scopeKey, setScopeKey] = useState<'A' | 'B' | 'both'>('both');
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  const scope = SCOPES.find((s) => s.key === scopeKey) ?? SCOPES[2];
 
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => {
@@ -115,28 +137,56 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
     }
   }
 
-  async function onBulkStamp() {
-    const ids = [...selectedIds];
+  const ids = useMemo(() => [...selectedIds], [selectedIds]);
+
+  /**
+   * Every bulk action shares the same shape: disable the toolbar, run, and
+   * report one summary. `key` is which button is spinning.
+   */
+  async function runBulk(key: string, fn: () => Promise<string>) {
     if (!ids.length) return;
-    setBulkBusy(true);
+    setBulkBusy(key);
     setBulkMsg(null);
     try {
+      setBulkMsg({ kind: 'ok', text: await fn() });
+    } catch (err) {
+      setBulkMsg({
+        kind: 'err',
+        text: err instanceof Error ? err.message : 'Bulk action failed',
+      });
+    } finally {
+      setBulkBusy(null);
+    }
+  }
+
+  const onBulkGenerate = () =>
+    runBulk('generate', async () => {
+      const res = await bulkContracts(ids, 'generate', scope.types);
+      return summarise(res.results, `Generated ${scope.label}`);
+    });
+
+  const onBulkSend = () =>
+    runBulk('send', async () => {
+      const res = await bulkContracts(ids, 'send', scope.types);
+      return summarise(res.results, `Emailed ${scope.label}`);
+    });
+
+  const onBulkDownload = (kind: 'contract' | 'signed') =>
+    runBulk(`download-${kind}`, async () => {
+      const res = await downloadContractsZip(ids, scope.types, kind);
+      const base = `Downloaded ${res.count} PDF${res.count === 1 ? '' : 's'} as a ZIP.`;
+      return res.skipped ? `${base} Skipped — ${res.skipped}` : base;
+    });
+
+  const onBulkStamp = () =>
+    runBulk('stamp', async () => {
       const res = await stampContracts(ids);
       const ok = res.results.filter((r) => r.ok).length;
       const skipped = res.results.length - ok;
       let text = `Company stamp applied to ${ok} of ${ids.length} selected.`;
       if (skipped > 0) text += ` ${skipped} skipped (no signed contract yet, or an error).`;
-      setBulkMsg({ kind: 'ok', text });
-      clearSelection();
-    } catch (err) {
-      setBulkMsg({
-        kind: 'err',
-        text: err instanceof Error ? err.message : 'Bulk stamp failed',
-      });
-    } finally {
-      setBulkBusy(false);
-    }
-  }
+      return text;
+    });
 
   const stats = useMemo(() => {
     const monthStart = startOfMonth();
@@ -156,14 +206,37 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
     const q = search.trim().toLowerCase();
     return crew.filter((c) => {
       if (status !== 'all' && c.contract.status !== status) return false;
+      if (projectFilter !== 'all' && projectLabel(projectsById, c.projectId) !== projectFilter) {
+        return false;
+      }
       if (!q) return true;
-      const hay = `${c.personal.firstName} ${c.personal.lastName} ${c.personal.email} ${c.contract.role ?? ''}`.toLowerCase();
+      const hay = [
+        c.personal.firstName,
+        c.personal.lastName,
+        c.personal.email,
+        c.personal.phone,
+        c.contract.role ?? '',
+        projectLabel(projectsById, c.projectId),
+      ]
+        .join(' ')
+        .toLowerCase();
       return hay.includes(q);
     });
-  }, [crew, search, status]);
+  }, [crew, search, status, projectFilter, projectsById]);
 
   const selected = crew.find((c) => c.id === selectedId) ?? null;
-  const filtersActive = search.trim() !== '' || status !== 'all';
+  const filtersActive = search.trim() !== '' || status !== 'all' || projectFilter !== 'all';
+
+  const allVisibleSelected =
+    filtered.length > 0 && filtered.every((c) => selectedIds.has(c.id));
+  const toggleSelectAll = () =>
+    setSelectedIds(allVisibleSelected ? new Set() : new Set(filtered.map((c) => c.id)));
+
+  const clearFilters = () => {
+    setSearch('');
+    setStatus('all');
+    setProjectFilter('all');
+  };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
@@ -264,18 +337,38 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
             ))}
           </select>
 
+          <label className="sr-only" htmlFor="crew-project">
+            Filter by project
+          </label>
+          <select
+            id="crew-project"
+            className="field-input w-auto py-2.5"
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+          >
+            <option value="all">All projects</option>
+            {projectNames.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+
           {filtersActive && (
-            <button
-              className="btn-quiet btn-sm"
-              onClick={() => {
-                setSearch('');
-                setStatus('all');
-              }}
-            >
+            <button className="btn-quiet btn-sm" onClick={clearFilters}>
               <Icon name="close" className="h-3.5 w-3.5" />
               Clear
             </button>
           )}
+
+          <button
+            className="btn-quiet btn-sm"
+            onClick={toggleSelectAll}
+            disabled={!filtered.length}
+          >
+            <Icon name={allVisibleSelected ? 'close' : 'check'} className="h-3.5 w-3.5" />
+            {allVisibleSelected ? 'Deselect all' : `Select all ${filtered.length}`}
+          </button>
 
           <Segmented
             className="ml-auto"
@@ -283,6 +376,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
             value={view}
             onChange={setView}
             options={[
+              { value: 'sheet', label: 'Details', title: 'Every date and term on one sheet' },
               { value: 'cards', label: 'Cards' },
               { value: 'table', label: 'Table' },
             ]}
@@ -299,25 +393,89 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
       </section>
 
       {selectedIds.size > 0 && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-exposure/40 bg-exposure/[0.07] px-4 py-3 animate-rise-in">
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-exposure/40 bg-exposure/[0.07] px-4 py-3 animate-rise-in">
           <span className="flex items-center gap-2 text-sm font-medium">
             <span className="grid h-6 min-w-6 place-items-center rounded-full bg-exposure px-1.5 text-xs font-bold text-ink-950 nums">
               {selectedIds.size}
             </span>
             selected
           </span>
-          <div className="flex gap-2">
-            <button className="btn-quiet btn-sm" onClick={clearSelection} disabled={bulkBusy}>
-              Clear
-            </button>
-            <button
-              className="btn-primary btn-sm"
+
+          <Segmented
+            label="Which contract bulk actions apply to"
+            value={scopeKey}
+            onChange={setScopeKey}
+            options={SCOPES.map((sc) => ({
+              value: sc.key,
+              label: sc.label,
+              title: `Act on contract ${sc.key === 'both' ? 'A and B' : sc.key}`,
+            }))}
+          />
+
+          <div className="flex flex-wrap gap-2">
+            <BulkBtn
+              icon="download"
+              primary
+              busy={bulkBusy === 'download-contract'}
+              disabled={Boolean(bulkBusy)}
+              onClick={() => onBulkDownload('contract')}
+              title="Download every selected contract as a single ZIP"
+            >
+              {`Download ${scope.label}`}
+            </BulkBtn>
+            <BulkBtn
+              icon="document"
+              busy={bulkBusy === 'generate'}
+              disabled={Boolean(bulkBusy)}
+              onClick={onBulkGenerate}
+              title="Build the PDFs for everyone selected and file them in Drive. Nothing is emailed."
+            >
+              {`Generate ${scope.label}`}
+            </BulkBtn>
+            <BulkBtn
+              icon="send"
+              busy={bulkBusy === 'send'}
+              disabled={Boolean(bulkBusy)}
+              onClick={onBulkSend}
+              title="Generate and email each contract separately, with the PDF attached and its own signing link"
+            >
+              {`Send ${scope.label}`}
+            </BulkBtn>
+            <BulkBtn
+              icon="file"
+              busy={bulkBusy === 'download-signed'}
+              disabled={Boolean(bulkBusy)}
+              onClick={() => onBulkDownload('signed')}
+              title="Download the signed (or stamped) PDFs as a single ZIP"
+            >
+              Signed ZIP
+            </BulkBtn>
+            <BulkBtn
+              icon="edit"
+              disabled={Boolean(bulkBusy)}
+              onClick={() => {
+                setBulkMsg(null);
+                setBulkEditOpen(true);
+              }}
+              title="Set the project and shared contract terms for everyone selected"
+            >
+              Project &amp; fields
+            </BulkBtn>
+            <BulkBtn
+              icon="stamp"
+              busy={bulkBusy === 'stamp'}
+              disabled={Boolean(bulkBusy)}
               onClick={onBulkStamp}
-              disabled={bulkBusy}
               title="Apply the company stamp to every selected crew member whose contract is signed"
             >
-              {bulkBusy ? <Spinner /> : <Icon name="stamp" className="h-4 w-4" />}
-              {bulkBusy ? 'Stamping…' : 'Apply stamp to signed'}
+              Stamp signed
+            </BulkBtn>
+            <button
+              className="btn-quiet btn-sm"
+              onClick={clearSelection}
+              disabled={Boolean(bulkBusy)}
+            >
+              Clear
             </button>
           </div>
         </div>
@@ -342,12 +500,16 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <EmptyState
-          filtered={filtersActive}
-          onClear={() => {
-            setSearch('');
-            setStatus('all');
-          }}
+        <EmptyState filtered={filtersActive} onClear={clearFilters} />
+      ) : view === 'sheet' ? (
+        <CrewSheet
+          crew={filtered}
+          projectsById={projectsById}
+          onOpen={setSelectedId}
+          selectedIds={selectedIds}
+          onToggle={toggleSelect}
+          allSelected={allVisibleSelected}
+          onToggleAll={toggleSelectAll}
         />
       ) : view === 'cards' ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -355,6 +517,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
             <CrewCard
               key={c.id}
               crew={c}
+              project={projectLabel(projectsById, c.projectId)}
               onOpen={() => setSelectedId(c.id)}
               selected={selectedIds.has(c.id)}
               onToggle={() => toggleSelect(c.id)}
@@ -370,6 +533,18 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
         />
       )}
 
+      <BulkEditModal
+        open={bulkEditOpen}
+        crewIds={ids}
+        projectNames={projectNames}
+        onClose={() => setBulkEditOpen(false)}
+        onDone={(message, kind) => {
+          setBulkEditOpen(false);
+          setBulkMsg({ kind, text: message });
+          void refreshProjects();
+        }}
+      />
+
       <Modal
         open={Boolean(selected)}
         title="Crew details"
@@ -378,6 +553,52 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
         {selected && <CrewDetails key={selected.id} crew={selected} />}
       </Modal>
     </div>
+  );
+}
+
+/** Fold per-crew bulk results into one readable summary. */
+function summarise(
+  results: Array<{ ok: boolean; name: string; error?: string }>,
+  what: string,
+): string {
+  const ok = results.filter((r) => r.ok);
+  const failed = results.filter((r) => !r.ok);
+  let text = `${what} for ${ok.length} of ${results.length} crew.`;
+  if (failed.length) {
+    const lines = failed.slice(0, 8).map((r) => `• ${r.name}: ${r.error ?? 'failed'}`);
+    if (failed.length > 8) lines.push(`• …and ${failed.length - 8} more`);
+    text += `\nSkipped:\n${lines.join('\n')}`;
+  }
+  return text;
+}
+
+function BulkBtn({
+  children,
+  icon,
+  onClick,
+  busy,
+  disabled,
+  primary,
+  title,
+}: {
+  children: React.ReactNode;
+  icon: IconName;
+  onClick: () => void;
+  busy?: boolean;
+  disabled?: boolean;
+  primary?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      className={`${primary ? 'btn-primary' : 'btn-ghost'} btn-sm`}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+    >
+      {busy ? <Spinner /> : <Icon name={icon} className="h-4 w-4" />}
+      {busy ? 'Working…' : children}
+    </button>
   );
 }
 
@@ -445,11 +666,13 @@ function EmptyState({ filtered, onClear }: { filtered: boolean; onClear: () => v
 
 function CrewCard({
   crew,
+  project,
   onOpen,
   selected,
   onToggle,
 }: {
   crew: CrewMember;
+  project: string;
   onOpen: () => void;
   selected: boolean;
   onToggle: () => void;
@@ -492,6 +715,14 @@ function CrewCard({
           <StatusBadge status={crew.contract.status} />
           <span className="truncate text-xs text-paper/[0.55]">
             {crew.contract.role ?? 'No role yet'}
+          </span>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-paper/[0.55]">
+          <span className="chip truncate">{project}</span>
+          <span className="nums" dir="ltr">
+            {crew.contract.dateFrom && crew.contract.dateTo
+              ? `${crew.contract.dateFrom} → ${crew.contract.dateTo}`
+              : 'No dates set'}
           </span>
         </div>
       </button>
