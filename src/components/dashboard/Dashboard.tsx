@@ -34,10 +34,10 @@ const STATUSES: ContractStatus[] = [
 ];
 
 /** Which contract(s) a bulk action applies to. Every PDF is bilingual. */
-const SCOPES: { key: 'A' | 'B' | 'both'; label: string; types: ContractType[] }[] = [
+const SCOPES: { key: 'A' | 'R' | 'both'; label: string; types: ContractType[] }[] = [
   { key: 'A', label: 'A', types: ['X'] },
-  { key: 'B', label: 'B', types: ['Y'] },
-  { key: 'both', label: 'A+B', types: ['X', 'Y'] },
+  { key: 'R', label: 'R', types: ['Y'] },
+  { key: 'both', label: 'A+R', types: ['X', 'Y'] },
 ];
 
 function startOfMonth(): number {
@@ -94,7 +94,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
   const [view, setView] = useState<'cards' | 'table' | 'sheet'>('sheet');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [scopeKey, setScopeKey] = useState<'A' | 'B' | 'both'>('both');
+  const [scopeKey, setScopeKey] = useState<'A' | 'R' | 'both'>('both');
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -408,7 +408,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
             options={SCOPES.map((sc) => ({
               value: sc.key,
               label: sc.label,
-              title: `Act on contract ${sc.key === 'both' ? 'A and B' : sc.key}`,
+              title: `Act on contract ${sc.key === 'both' ? 'A and R' : sc.key}`,
             }))}
           />
 

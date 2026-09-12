@@ -149,7 +149,7 @@ git push -u origin main
 
 1. `/crew/form` → submit a test crew member (use a mailbox you control).
 2. Dashboard → open the crew → **Edit contract fields** → set Role, Amounts,
-   Dates and IBAN → **Email A+B for signature**.
+   Dates and IBAN → **Email A+R for signature**.
 3. Two emails arrive, each with its contract attached and its own reference.
 4. **Phone route:** open "Review & sign the contract" on a phone, draw a
    signature, submit. Within seconds the dashboard shows *Signed — signed on

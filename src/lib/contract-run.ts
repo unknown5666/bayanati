@@ -12,7 +12,7 @@ import { createSignToken, revokeSignToken, signUrlFor } from './sign-tokens';
 import { sendContractEmail } from './email';
 import type { ContractType, CrewMember } from './types';
 
-export const LETTER: Record<ContractType, 'A' | 'B'> = { X: 'A', Y: 'B' };
+export const LETTER: Record<ContractType, 'A' | 'R'> = { X: 'A', Y: 'R' };
 
 export type ContractMode = 'generate' | 'send';
 

@@ -28,7 +28,7 @@ export interface ContractTemplate {
 //   {CREW_NAME} {ROLE} {AMOUNT} {AMOUNT_X} {AMOUNT_Y}
 //   {DATE_FROM} {DATE_TO} {IBAN} {PROJECT_NAME} {EMIRATES_ID}
 //   {PASSPORT} {NATIONALITY} {TODAY}
-// {AMOUNT} resolves to X or Y depending on which contract is being rendered.
+// {AMOUNT} resolves to A or R depending on which contract is being rendered.
 
 const en: ContractTemplate = {
   title: 'Crew Work Execution Contract',

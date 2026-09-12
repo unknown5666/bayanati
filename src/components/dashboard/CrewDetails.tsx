@@ -19,7 +19,7 @@ import {
 
 const SCOPES: { key: string; label: string; types: ContractType[] }[] = [
   { key: 'A', label: 'Contract A', types: ['X'] },
-  { key: 'B', label: 'Contract B', types: ['Y'] },
+  { key: 'R', label: 'Contract R', types: ['Y'] },
   { key: 'both', label: 'Both', types: ['X', 'Y'] },
 ];
 
@@ -265,7 +265,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
     }
   }
 
-  const scopeSuffix = scope.key === 'both' ? 'A+B' : scope.key;
+  const scopeSuffix = scope.key === 'both' ? 'A+R' : scope.key;
 
   return (
     <div className="grid gap-4">
@@ -363,7 +363,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
             dir="ltr"
           />
           <Row
-            label="Amount B"
+            label="Amount R"
             value={c.amountY != null ? `${c.amountY.toLocaleString()} AED` : undefined}
             dir="ltr"
           />
@@ -379,7 +379,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
             </span>
           </div>
           <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-            <span className="text-sm text-paper/[0.72]">Contract B</span>
+            <span className="text-sm text-paper/[0.72]">Contract R</span>
             <span className="text-sm font-medium">
               <ContractState sig={crew.signatures?.contractY} signUrl={c.signUrlY} />
             </span>
@@ -394,7 +394,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
           <SectionLabel icon="file">Generated contracts</SectionLabel>
           <div className="divide-y divide-ink-800 border-t border-ink-800">
             {links.X && <LinkRow icon="document" label="Contract A" href={links.X} />}
-            {links.Y && <LinkRow icon="document" label="Contract B" href={links.Y} />}
+            {links.Y && <LinkRow icon="document" label="Contract R" href={links.Y} />}
           </div>
         </section>
       )}
@@ -408,7 +408,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
             {(['X', 'Y'] as ContractType[]).map((type) => {
               const url = signLinks[type];
               if (!url) return null;
-              const label = `Contract ${type === 'X' ? 'A' : 'B'}`;
+              const label = `Contract ${type === 'X' ? 'A' : 'R'}`;
               const signed =
                 type === 'X'
                   ? crew.signatures?.contractX?.signed
@@ -456,7 +456,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
                   key={type}
                   icon="checkCircle"
                   tone="ok"
-                  label={`Contract ${type === 'X' ? 'A' : 'B'}`}
+                  label={`Contract ${type === 'X' ? 'A' : 'R'}`}
                   meta={`${methodLabel(sig.method)}${
                     sig.timestamp ? ` · ${new Date(sig.timestamp).toLocaleDateString()}` : ''
                   }`}
@@ -476,7 +476,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
               <LinkRow icon="stamp" label="Contract A (stamped)" href={stampLinks.X} />
             )}
             {stampLinks.Y && (
-              <LinkRow icon="stamp" label="Contract B (stamped)" href={stampLinks.Y} />
+              <LinkRow icon="stamp" label="Contract R (stamped)" href={stampLinks.Y} />
             )}
           </div>
         </section>
@@ -711,7 +711,7 @@ function FieldsModal({
         </Field>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Amount A — Contract X (AED)" htmlFor="f-amount-x">
+          <Field label="Amount A — Contract A (AED)" htmlFor="f-amount-x">
             <input
               id="f-amount-x"
               className="field-input nums"
@@ -722,7 +722,7 @@ function FieldsModal({
               onChange={(e) => setAmountX(e.target.value)}
             />
           </Field>
-          <Field label="Amount B — Contract Y (AED)" htmlFor="f-amount-y">
+          <Field label="Amount R — Contract R (AED)" htmlFor="f-amount-y">
             <input
               id="f-amount-y"
               className="field-input nums"

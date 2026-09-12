@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 // Drive. Anyone holding the token may read this one contract — the token is the
 // capability, exactly as it is for signing.
 
-const LETTER: Record<ContractType, 'A' | 'B'> = { X: 'A', Y: 'B' };
+const LETTER: Record<ContractType, 'A' | 'R'> = { X: 'A', Y: 'R' };
 
 /**
  * The bytes we emailed, fetched back from Drive. If the file id is missing (an

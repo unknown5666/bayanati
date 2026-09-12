@@ -32,7 +32,7 @@ const MAP: Record<ContractStatus, { label: string; cls: string; icon: IconName }
     icon: 'signature',
   },
   signed_y: {
-    label: 'Signed (B)',
+    label: 'Signed (R)',
     cls: 'border-ok/25 bg-ok/10 text-ok',
     icon: 'signature',
   },

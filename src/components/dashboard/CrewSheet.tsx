@@ -137,7 +137,7 @@ export function CrewSheet({
               Amount A
             </th>
             <th scope="col" className={TH}>
-              Amount B
+              Amount R
             </th>
             <SortTh active={sortKey === 'dateFrom'} asc={asc} onClick={() => sortBy('dateFrom')}>
               Period
@@ -155,7 +155,7 @@ export function CrewSheet({
               Signed A
             </th>
             <th scope="col" className={TH}>
-              Signed B
+              Signed R
             </th>
             <SortTh active={sortKey === 'status'} asc={asc} onClick={() => sortBy('status')}>
               Status
@@ -281,7 +281,7 @@ export function CrewSheet({
                   <div className="flex items-center gap-1">
                     <FileLink href={c.documents.driveFolder} label="Drive folder" icon="google" />
                     <FileLink href={k.pdfLinkX} label="Contract A (generated)" text="A" />
-                    <FileLink href={k.pdfLinkY} label="Contract B (generated)" text="B" />
+                    <FileLink href={k.pdfLinkY} label="Contract R (generated)" text="R" />
                     <FileLink
                       href={c.signatures?.contractX?.driveLink}
                       label="Contract A (signed)"
@@ -289,11 +289,11 @@ export function CrewSheet({
                     />
                     <FileLink
                       href={c.signatures?.contractY?.driveLink}
-                      label="Contract B (signed)"
-                      text="B✓"
+                      label="Contract R (signed)"
+                      text="R✓"
                     />
                     <FileLink href={k.stampLinkX} label="Contract A (stamped)" icon="stamp" />
-                    <FileLink href={k.stampLinkY} label="Contract B (stamped)" icon="stamp" />
+                    <FileLink href={k.stampLinkY} label="Contract R (stamped)" icon="stamp" />
                   </div>
                 </td>
 

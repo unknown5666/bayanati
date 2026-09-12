@@ -16,7 +16,7 @@ export const maxDuration = 60;
 
 // Admin-only: apply the company stamp to the SIGNED contract PDFs of one or
 // more crew members. Accepts { crewId } or { crewIds: [...] } (for bulk). For
-// each crew, every already-signed contract (X→A, Y→B) is fetched back from
+// each crew, every already-signed contract (X→A, Y→R) is fetched back from
 // Drive, stamped bottom-left, and re-uploaded into the crew member's folder.
 
 export async function POST(req: Request) {
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
 
         const signedPdf = await downloadFromDrive(signature.driveFileId);
         const stamped = await applyStampToPdf(new Uint8Array(signedPdf), stampPng);
-        const letter = type === 'X' ? 'A' : 'B';
+        const letter = type === 'X' ? 'A' : 'R';
         const up = await uploadToFolder({
           folderId: folders.contractsId,
           fileName: `Contract - ${first} - ${last} - ${letter} - stamped.pdf`,

@@ -86,7 +86,7 @@ variables; nothing reads them any more.
    `https://bayanati.productionsuae.com/api/inbox/poll?key=$INBOX_POLL_SECRET`
    every 5 minutes — the phone-signing route is unaffected either way.
 3. **Full pipeline test** — see the smoke test at the end of DEPLOYMENT.md:
-   email A+B → sign one on a phone → print/scan/reply the other → reply to one
+   email A+R → sign one on a phone → print/scan/reply the other → reply to one
    with a photo and check the refusal comes back.
 4. **Remove the `DOCUSEAL_*` variables** from the Hostinger env panel.
 
@@ -96,7 +96,7 @@ variables; nothing reads them any more.
 
 1. Crew submits `/crew/form` → `POST /api/crew/submit` uploads the 3 ID images to
    Drive and writes `/crew/{crewId}` (status `submitted`) in the `_intake` pool.
-2. Admin sets role/amounts/dates/IBAN → **Email A+B for signature**.
+2. Admin sets role/amounts/dates/IBAN → **Email A+R for signature**.
 3. Server generates the bilingual PDF per contract → Drive
    `.../Contracts/Pending/{CREW}/` → emails it, attached, with a signing link and
    a reference in the subject.

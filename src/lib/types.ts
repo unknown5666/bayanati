@@ -6,8 +6,8 @@ export type ContractStatus =
   | 'submitted' // crew filled the intake form; no contract yet
   | 'pending' // admin is preparing (role/amounts/dates being set)
   | 'sent' // contracts generated and emailed for signature
-  | 'signed_x' // only contract X signed
-  | 'signed_y' // only contract Y signed
+  | 'signed_x' // only contract A signed
+  | 'signed_y' // only contract R signed
   | 'both_signed';
 
 export type ContractType = 'X' | 'Y';
@@ -133,7 +133,7 @@ export interface ContractPlaceholders {
   ROLE: string;
   AMOUNT_X: string;
   AMOUNT_Y: string;
-  AMOUNT: string; // resolves to X or Y depending on the contract being rendered
+  AMOUNT: string; // resolves to A or R depending on the contract being rendered
   DATE_FROM: string;
   DATE_TO: string;
   IBAN: string;

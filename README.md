@@ -126,8 +126,8 @@ placeholder names intact:
 
 `{CREW_NAME} {ROLE} {AMOUNT} {AMOUNT_X} {AMOUNT_Y} {DATE_FROM} {DATE_TO} {IBAN} {PROJECT_NAME} {EMIRATES_ID} {PASSPORT} {NATIONALITY} {TODAY}`
 
-Two PDFs are generated per crew member: **Contract X** (amount X) and
-**Contract Y** (amount Y). `{AMOUNT}` resolves to whichever variant is rendering.
+Two PDFs are generated per crew member: **Contract A** (amount A) and
+**Contract R** (amount R). `{AMOUNT}` resolves to whichever variant is rendering.
 
 **Arabic PDFs** use the embedded Amiri face in `src/assets/fonts/`
 (see `src/assets/fonts/README.md`).

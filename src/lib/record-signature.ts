@@ -13,7 +13,7 @@ import { sendSignedConfirmation, sendAdminNotice } from './email';
 import { logAudit } from './audit';
 import type { ContractType, CrewMember, SignatureMethod } from './types';
 
-const LETTER: Record<ContractType, 'A' | 'B'> = { X: 'A', Y: 'B' };
+const LETTER: Record<ContractType, 'A' | 'R'> = { X: 'A', Y: 'R' };
 
 const METHOD_LABEL: Record<SignatureMethod, string> = {
   online: 'signed online',

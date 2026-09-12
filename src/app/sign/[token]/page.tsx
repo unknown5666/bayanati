@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-const LETTER = { X: 'A', Y: 'B' } as const;
+const LETTER = { X: 'A', Y: 'R' } as const;
 
 /**
  * Public signing page — the token in the URL is the authorisation, so there is

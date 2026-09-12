@@ -169,7 +169,7 @@ export function BulkEditModal({
         )}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Amount A — Contract X (AED)">
+          <Field label="Amount A — Contract A (AED)">
             <input
               className="field-input"
               type="number"
@@ -179,7 +179,7 @@ export function BulkEditModal({
               onChange={(e) => setAmountX(e.target.value)}
             />
           </Field>
-          <Field label="Amount B — Contract Y (AED)">
+          <Field label="Amount R — Contract R (AED)">
             <input
               className="field-input"
               type="number"

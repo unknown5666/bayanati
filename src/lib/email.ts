@@ -150,7 +150,7 @@ export interface ContractEmailParams {
   dateFrom: string;
   dateTo: string;
   amount: string; // this contract's amount, formatted
-  contractLabel: string; // "A" or "B"
+  contractLabel: string; // "A" or "R"
   reference: string; // OEP-XXXXXX — printed in the subject, matches replies back
   signUrl: string; // {APP_URL}/sign/{token}
   pdf: { filename: string; content: Buffer | Uint8Array };

@@ -26,7 +26,7 @@ import { findRefIn, lookupSignRef } from './sign-tokens';
 import { looksLikePdf } from './sign-pdf';
 import type { ContractType, CrewMember } from './types';
 
-const LETTER: Record<ContractType, 'A' | 'B'> = { X: 'A', Y: 'B' };
+const LETTER: Record<ContractType, 'A' | 'R'> = { X: 'A', Y: 'R' };
 
 /** Largest attachment we will pull out of a mailbox. Scans are ~1–5 MB. */
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -105,7 +105,7 @@ export interface InboxPollResult {
     subject: string;
     outcome: ReplyOutcome;
     crewId?: string;
-    contract?: 'A' | 'B';
+    contract?: 'A' | 'R';
     note?: string;
   }>;
   errors: string[];

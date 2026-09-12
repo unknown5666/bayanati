@@ -92,7 +92,7 @@ export interface InboxPollResult {
     subject: string;
     outcome: 'filed' | 'rejected' | 'unmatched' | 'ignored';
     crewId?: string;
-    contract?: 'A' | 'B';
+    contract?: 'A' | 'R';
     note?: string;
   }>;
   errors: string[];
