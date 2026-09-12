@@ -11,6 +11,7 @@ import { Modal } from './Modal';
 import { CrewDetails } from './CrewDetails';
 import { CrewSheet } from './CrewSheet';
 import { BulkEditModal } from './BulkEditModal';
+import { DeleteCrewModal } from './DeleteCrewModal';
 import {
   bulkContracts,
   checkInbox,
@@ -97,6 +98,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
   const [scopeKey, setScopeKey] = useState<'A' | 'R' | 'both'>('both');
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const scope = SCOPES.find((s) => s.key === scopeKey) ?? SCOPES[2];
@@ -138,6 +140,10 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
   }
 
   const ids = useMemo(() => [...selectedIds], [selectedIds]);
+  const selectedCrew = useMemo(
+    () => crew.filter((c) => selectedIds.has(c.id)),
+    [crew, selectedIds],
+  );
 
   /**
    * Every bulk action shares the same shape: disable the toolbar, run, and
@@ -471,6 +477,18 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
               Stamp signed
             </BulkBtn>
             <button
+              className="btn-danger btn-sm"
+              onClick={() => {
+                setBulkMsg(null);
+                setDeleteOpen(true);
+              }}
+              disabled={Boolean(bulkBusy)}
+              title="Permanently delete the selected crew records"
+            >
+              <Icon name="trash" className="h-4 w-4" />
+              Delete
+            </button>
+            <button
               className="btn-quiet btn-sm"
               onClick={clearSelection}
               disabled={Boolean(bulkBusy)}
@@ -533,6 +551,19 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
         />
       )}
 
+      <DeleteCrewModal
+        open={deleteOpen}
+        crew={selectedCrew}
+        onClose={() => setDeleteOpen(false)}
+        onDone={(message, kind) => {
+          setDeleteOpen(false);
+          setBulkMsg({ kind, text: message });
+          // The deleted rows are already gone from the realtime list; drop them
+          // from the selection too so the toolbar does not act on ghosts.
+          clearSelection();
+        }}
+      />
+
       <BulkEditModal
         open={bulkEditOpen}
         crewIds={ids}
@@ -550,7 +581,30 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
         title="Crew details"
         onClose={() => setSelectedId(null)}
       >
-        {selected && <CrewDetails key={selected.id} crew={selected} />}
+        {selected && (
+          <>
+            <CrewDetails key={selected.id} crew={selected} />
+            {/* Deleting one person goes through the same confirmation as a bulk
+                delete, so there is one place where the wording and the Drive
+                choice live. */}
+            <div className="mt-6 flex justify-end border-t border-ink-800 pt-4">
+              <button
+                className="btn-danger btn-sm"
+                onClick={() => {
+                  setSelectedIds(new Set([selected.id]));
+                  setBulkMsg(null);
+                  // Close the details sheet first: two stacked dialogs would
+                  // fight over the focus trap.
+                  setSelectedId(null);
+                  setDeleteOpen(true);
+                }}
+              >
+                <Icon name="trash" className="h-4 w-4" />
+                Delete this record
+              </button>
+            </div>
+          </>
+        )}
       </Modal>
     </div>
   );

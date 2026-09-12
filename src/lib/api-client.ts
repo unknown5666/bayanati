@@ -210,3 +210,23 @@ export async function downloadContractsZip(
     skipped: decodeURIComponent(res.headers.get('X-Skipped') ?? ''),
   };
 }
+
+export interface DeleteCrewResult {
+  crewId: string;
+  name: string;
+  ok: boolean;
+  driveTrashed?: boolean;
+  error?: string;
+}
+
+/**
+ * Permanently remove crew records and their signing links. With `trashDrive`
+ * their Google Drive folder is moved to the trash too (recoverable there for
+ * 30 days); otherwise the uploaded documents and contracts are left in place.
+ */
+export function deleteCrew(crewIds: string[], trashDrive: boolean) {
+  return post<{ ok: boolean; deleted: number; results: DeleteCrewResult[] }>(
+    '/api/crew/delete',
+    { crewIds, trashDrive },
+  );
+}

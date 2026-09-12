@@ -315,3 +315,12 @@ export function driveFileIdFromLink(link?: string): string | null {
   return m?.[1] ?? null;
 }
 
+/**
+ * Move a Drive file or folder to the owner's trash. Used when a crew record is
+ * deleted: trashing (rather than permanently deleting) means the paperwork can
+ * still be recovered from Drive for 30 days if someone deletes the wrong person.
+ */
+export async function trashDriveFile(fileId: string): Promise<void> {
+  const drive = driveClient();
+  await drive.files.update({ fileId, requestBody: { trashed: true }, fields: 'id' });
+}
