@@ -3,6 +3,7 @@
 // Authenticated fetch helpers for admin API routes.
 
 import { authHeader } from './use-admin-auth';
+import type { ColumnKey, SheetRow } from './crew-sheet';
 
 async function post<T>(url: string, body: unknown): Promise<T> {
   const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
@@ -213,6 +214,38 @@ export async function bulkUpdateCrew(
   }
 
   return { ok: results.some((r) => r.ok), driveFailures, results };
+}
+
+// ---------------------------------------------------------------------------
+// Crew sheet import
+// ---------------------------------------------------------------------------
+
+export interface SheetImportResponse {
+  ok: true;
+  filename: string;
+  sheetName: string;
+  headerLine: number;
+  columns: Partial<Record<ColumnKey, number>>;
+  rows: SheetRow[];
+}
+
+/**
+ * Read a crew sheet on the server and get back what it says. Nothing is saved:
+ * the rows come back for review, and the admin applies them from there.
+ */
+export async function importCrewSheet(file: File): Promise<SheetImportResponse> {
+  const buffer = await file.arrayBuffer();
+  // btoa() needs a binary string, and spreading a 5 MB array into
+  // String.fromCharCode blows the call stack — convert in chunks.
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return post<SheetImportResponse>('/api/crew/import-sheet', {
+    filename: file.name,
+    data: btoa(binary),
+  });
 }
 
 export function listProjects() {
