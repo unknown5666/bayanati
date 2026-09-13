@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { Modal } from './Modal';
 import { StatusBadge } from './StatusBadge';
+import { crewContractState } from '@/lib/contract-state';
 import type { CrewMember, SignatureRecord } from '@/lib/types';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { Spinner } from '@/components/ui/Spinner';
@@ -213,11 +214,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
     Boolean(c.iban) &&
     (!scope.types.includes('X') || c.amountX != null) &&
     (!scope.types.includes('Y') || c.amountY != null);
-  const alreadySent =
-    c.status === 'sent' ||
-    c.status === 'signed_x' ||
-    c.status === 'signed_y' ||
-    c.status === 'both_signed';
+  const alreadySent = crewContractState(crew).outCount > 0;
 
   async function run<T>(fn: () => Promise<T>, okText: string): Promise<T | undefined> {
     setBusy(true);
@@ -287,7 +284,7 @@ export function CrewDetails({ crew }: { crew: CrewMember }) {
             </p>
           </div>
         </div>
-        <StatusBadge status={c.status} />
+        <StatusBadge crew={crew} />
       </div>
 
       {/* Contact shortcuts — the two things an admin reaches for most. */}

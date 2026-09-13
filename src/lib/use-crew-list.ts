@@ -21,7 +21,10 @@ export function useCrewList(): { crew: CrewMember[]; loading: boolean; error?: s
         const val = (snap.val() ?? {}) as Record<string, CrewMember>;
         // Drop malformed/partial records (e.g. a stray test write) so the
         // dashboard's nested field access can never throw and blank the page.
-        const list = Object.values(val)
+        const list = Object.entries(val)
+          // The key is the id — a record without `id` in its body could not
+          // otherwise be selected, opened or acted on.
+          .map(([id, c]) => (c ? { ...c, id } : c))
           .filter(
             (c): c is CrewMember =>
               !!c && !!c.personal && !!c.contract && !!c.documents && !!c.signatures,

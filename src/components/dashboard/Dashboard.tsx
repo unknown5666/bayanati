@@ -5,8 +5,10 @@ import { signOut } from 'firebase/auth';
 import { firebaseAuth } from '@/lib/firebase/client';
 import { useCrewList } from '@/lib/use-crew-list';
 import { useProjects, projectLabel } from '@/lib/use-projects';
-import type { ContractStatus, CrewMember } from '@/lib/types';
-import { StatusBadge, statusLabel } from './StatusBadge';
+import type { CrewMember } from '@/lib/types';
+import { StatusBadge } from './StatusBadge';
+import { StatusFilter } from './StatusFilter';
+import { contractStage, crewContractState, matchesStatusFilter } from '@/lib/contract-state';
 import { Modal } from './Modal';
 import { CrewDetails } from './CrewDetails';
 import { CrewSheet } from './CrewSheet';
@@ -26,15 +28,6 @@ import { Spinner } from '@/components/ui/Spinner';
 import { Alert } from '@/components/ui/Alert';
 import { Segmented } from '@/components/ui/Segmented';
 import { CrewCardSkeleton, StatSkeleton } from '@/components/ui/Skeleton';
-
-const STATUSES: ContractStatus[] = [
-  'submitted',
-  'pending',
-  'sent',
-  'signed_x',
-  'signed_y',
-  'both_signed',
-];
 
 /** Which contract(s) a bulk action applies to. Every PDF is bilingual. */
 const SCOPES: { key: 'A' | 'R' | 'both'; label: string; types: ContractType[] }[] = [
@@ -92,7 +85,8 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
   const { crew, loading, error } = useCrewList();
   const { names: projectNames, byId: projectsById, refresh: refreshProjects } = useProjects();
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<ContractStatus | 'all'>('all');
+  const [statusTicks, setStatusTicks] = useState<Set<string>>(new Set());
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const [projectFilter, setProjectFilter] = useState('all');
   const [view, setView] = useState<'cards' | 'table' | 'sheet'>('sheet');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -165,18 +159,21 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
       });
     } finally {
       setBulkBusy(null);
+      setBulkProgress(null);
     }
   }
 
+  const progress = (done: number, total: number) => setBulkProgress({ done, total });
+
   const onBulkGenerate = () =>
     runBulk('generate', async () => {
-      const res = await bulkContracts(ids, 'generate', scope.types);
+      const res = await bulkContracts(ids, 'generate', scope.types, progress);
       return summarise(res.results, `Generated ${scope.label}`);
     });
 
   const onBulkSend = () =>
     runBulk('send', async () => {
-      const res = await bulkContracts(ids, 'send', scope.types);
+      const res = await bulkContracts(ids, 'send', scope.types, progress);
       return summarise(res.results, `Emailed ${scope.label}`);
     });
 
@@ -184,32 +181,62 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
 
   const onBulkStamp = () =>
     runBulk('stamp', async () => {
-      const res = await stampContracts(ids);
+      // Only people with a signed contract still missing its seal need a round
+      // trip — everyone else is already done or has nothing to stamp.
+      const needing = selectedCrew.filter((c) =>
+        (['X', 'Y'] as ContractType[]).some((t) => contractStage(c, t) === 'signed'),
+      );
+      const done = selectedCrew.filter((c) => {
+        const st = crewContractState(c);
+        return st.signedCount > 0 && st.stampedCount === st.signedCount;
+      }).length;
+      const unsigned = selectedCrew.length - needing.length - done;
+      if (!needing.length) {
+        return done
+          ? `Nothing to stamp — ${done} already stamped, ${unsigned} not signed yet.`
+          : 'Nothing to stamp — none of the selected crew has a signed contract yet.';
+      }
+      const res = await stampContracts(
+        needing.map((c) => c.id),
+        { onlyMissing: true, onProgress: progress },
+      );
       const ok = res.results.filter((r) => r.ok).length;
-      const skipped = res.results.length - ok;
-      let text = `Company stamp applied to ${ok} of ${ids.length} selected.`;
-      if (skipped > 0) text += ` ${skipped} skipped (no signed contract yet, or an error).`;
+      const failed = res.results.filter((r) => !r.ok);
+      const parts = [`Stamped ${ok} of ${needing.length} crew with a signed, unstamped contract`];
+      if (done) parts.push(`${done} already stamped`);
+      if (unsigned) parts.push(`${unsigned} not signed yet`);
+      let text = `${parts.join(' · ')}.`;
+      if (failed.length) {
+        const nameOf = (id: string) => {
+          const c = crew.find((x) => x.id === id);
+          return c ? fullName(c) : id;
+        };
+        const lines = failed.slice(0, 8).map((r) => `• ${nameOf(r.crewId)}: ${r.error ?? 'failed'}`);
+        if (failed.length > 8) lines.push(`• …and ${failed.length - 8} more`);
+        text += `\nNot stamped:\n${lines.join('\n')}`;
+      }
       return text;
     });
 
+  const states = useMemo(() => new Map(crew.map((c) => [c.id, crewContractState(c)])), [crew]);
+
   const stats = useMemo(() => {
     const monthStart = startOfMonth();
+    const all = [...states.values()];
     return {
       thisMonth: crew.filter((c) => (c.createdAt ?? 0) >= monthStart).length,
-      sent: crew.filter((c) =>
-        ['sent', 'signed_x', 'signed_y', 'both_signed'].includes(c.contract.status),
-      ).length,
-      bothSigned: crew.filter((c) => c.contract.status === 'both_signed').length,
-      pendingSignature: crew.filter((c) =>
-        ['sent', 'signed_x', 'signed_y'].includes(c.contract.status),
-      ).length,
+      sent: all.filter((s) => s.outCount > 0).length,
+      fullySigned: all.filter((s) => s.overall === 'signed' || s.overall === 'stamped').length,
+      pendingSignature: all.filter((s) => s.signedCount < s.outCount).length,
+      needsStamp: all.filter((s) => s.signedCount > s.stampedCount).length,
     };
-  }, [crew]);
+  }, [crew, states]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return crew.filter((c) => {
-      if (status !== 'all' && c.contract.status !== status) return false;
+      const st = states.get(c.id);
+      if (st && !matchesStatusFilter(st, statusTicks)) return false;
       if (projectFilter !== 'all' && projectLabel(projectsById, c.projectId) !== projectFilter) {
         return false;
       }
@@ -226,7 +253,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [crew, search, status, projectFilter, projectsById]);
+  }, [crew, states, search, statusTicks, projectFilter, projectsById]);
 
   /**
    * Name + IBAN (and the rest of what a payment run needs) as a CSV. Everything
@@ -256,7 +283,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
   }
 
   const selected = crew.find((c) => c.id === selectedId) ?? null;
-  const filtersActive = search.trim() !== '' || status !== 'all' || projectFilter !== 'all';
+  const filtersActive = search.trim() !== '' || statusTicks.size > 0 || projectFilter !== 'all';
 
   const allVisibleSelected =
     filtered.length > 0 && filtered.every((c) => selectedIds.has(c.id));
@@ -265,7 +292,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
 
   const clearFilters = () => {
     setSearch('');
-    setStatus('all');
+    setStatusTicks(new Set());
     setProjectFilter('all');
   };
 
@@ -336,16 +363,18 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
             <Stat icon="send" label="Contracts sent" value={stats.sent} tone="info" />
             <Stat
               icon="checkCircle"
-              label="Both signed"
-              value={stats.bothSigned}
+              label={`Fully signed${stats.needsStamp ? ` · ${stats.needsStamp} need a stamp` : ''}`}
+              value={stats.fullySigned}
               tone="ok"
               accent
+              onClick={() => setStatusTicks(new Set(['needs_stamp']))}
             />
             <Stat
               icon="clock"
-              label="Pending signatures"
+              label="Awaiting signatures"
               value={stats.pendingSignature}
               tone="warn"
+              onClick={() => setStatusTicks(new Set(['awaiting']))}
             />
           </>
         )}
@@ -373,22 +402,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
             />
           </div>
 
-          <label className="sr-only" htmlFor="crew-status">
-            Filter by status
-          </label>
-          <select
-            id="crew-status"
-            className="field-input w-auto py-2.5"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as ContractStatus | 'all')}
-          >
-            <option value="all">All statuses</option>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {statusLabel(s)}
-              </option>
-            ))}
-          </select>
+          <StatusFilter crew={crew} value={statusTicks} onChange={setStatusTicks} />
 
           <label className="sr-only" htmlFor="crew-project">
             Filter by project
@@ -478,6 +492,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
             <BulkBtn
               icon="document"
               busy={bulkBusy === 'generate'}
+              progress={bulkProgress}
               disabled={Boolean(bulkBusy)}
               onClick={onBulkGenerate}
               title="Build the PDFs for everyone selected and file them in Drive. Nothing is emailed."
@@ -487,6 +502,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
             <BulkBtn
               icon="send"
               busy={bulkBusy === 'send'}
+              progress={bulkProgress}
               disabled={Boolean(bulkBusy)}
               onClick={onBulkSend}
               title="Generate and email each contract separately, with the PDF attached and its own signing link"
@@ -515,6 +531,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
             <BulkBtn
               icon="stamp"
               busy={bulkBusy === 'stamp'}
+              progress={bulkProgress}
               disabled={Boolean(bulkBusy)}
               onClick={onBulkStamp}
               title="Apply the company stamp to every selected crew member whose contract is signed"
@@ -709,6 +726,7 @@ function BulkBtn({
   disabled,
   primary,
   title,
+  progress,
 }: {
   children: React.ReactNode;
   icon: IconName;
@@ -717,6 +735,7 @@ function BulkBtn({
   disabled?: boolean;
   primary?: boolean;
   title?: string;
+  progress?: { done: number; total: number } | null;
 }) {
   return (
     <button
@@ -726,7 +745,7 @@ function BulkBtn({
       title={title}
     >
       {busy ? <Spinner /> : <Icon name={icon} className="h-4 w-4" />}
-      {busy ? 'Working…' : children}
+      {busy ? (progress ? `Working ${progress.done}/${progress.total}…` : 'Working…') : children}
     </button>
   );
 }
@@ -744,16 +763,21 @@ function Stat({
   value,
   accent,
   tone = 'neutral',
+  onClick,
 }: {
   icon: IconName;
   label: string;
   value: number;
   accent?: boolean;
   tone?: keyof typeof STAT_TONE;
+  /** Tiles with an action filter the list down to what they count. */
+  onClick?: () => void;
 }) {
+  const Tag = onClick ? 'button' : 'div';
   return (
-    <div
-      className={`card p-4 transition duration-200 ease-entrance hover:-translate-y-0.5 hover:shadow-float sm:p-5 ${
+    <Tag
+      {...(onClick ? { type: 'button' as const, onClick } : {})}
+      className={`card p-4 text-left transition duration-200 ease-entrance hover:-translate-y-0.5 hover:shadow-float sm:p-5 ${
         accent ? 'border-exposure/40' : ''
       }`}
     >
@@ -765,7 +789,7 @@ function Stat({
       {/* Tabular figures so the four tiles' numbers line up as they change. */}
       <p className="mt-3 text-3xl font-bold nums sm:text-4xl">{value}</p>
       <p className="mt-1 text-xs leading-snug text-paper/[0.72]">{label}</p>
-    </div>
+    </Tag>
   );
 }
 
@@ -841,7 +865,7 @@ function CrewCard({
           </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-          <StatusBadge status={crew.contract.status} />
+          <StatusBadge crew={crew} />
           <span className="truncate text-xs text-paper/[0.55]">
             {crew.contract.role ?? 'No role yet'}
           </span>
@@ -930,7 +954,7 @@ function CrewTable({
                 </td>
                 <td className="px-4 py-3 text-paper/[0.72]">{c.contract.role ?? '—'}</td>
                 <td className="px-4 py-3">
-                  <StatusBadge status={c.contract.status} />
+                  <StatusBadge crew={c} />
                 </td>
                 <td className="px-4 py-3 text-right">
                   <button

@@ -11,7 +11,9 @@ import { INTAKE_PROJECT_ID, INTAKE_PROJECT_NAME } from './project-constants';
 
 export async function getCrew(crewId: string): Promise<CrewMember | null> {
   const snap = await adminDb().ref(`crew/${crewId}`).get();
-  return snap.exists() ? (snap.val() as CrewMember) : null;
+  // The key is the id. Not every record stores `id` in its body, and code that
+  // writes to `crew/${crew.id}` would otherwise write to `crew/undefined`.
+  return snap.exists() ? ({ ...(snap.val() as CrewMember), id: crewId }) : null;
 }
 
 export async function updateCrew(
