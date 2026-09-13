@@ -1,13 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/firebase/admin';
-import {
-  getCrew,
-  getProjectName,
-  updateContract,
-  INTAKE_PROJECT_NAME,
-} from '@/lib/crew-db';
-import { downloadFromDrive, resolveCrewFolder, uploadToFolder } from '@/lib/drive';
-import { applyStampToPdf, loadStampPng } from '@/lib/stamp';
+import { getCrew } from '@/lib/crew-db';
+import { loadStampPng } from '@/lib/stamp';
+import { stampSignedContracts } from '@/lib/stamp-run';
 import { logAudit } from '@/lib/audit';
 import type { ContractType } from '@/lib/types';
 
@@ -64,38 +59,15 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const projectName = await getProjectName(crew.projectId);
-      const first = crew.personal.firstName;
-      const last = crew.personal.lastName;
-      const crewName = `${first} ${last}`.trim();
-
-      const folders = await resolveCrewFolder({
-        projectName,
-        crewName,
-        legacyProjectNames: [INTAKE_PROJECT_NAME],
+      const copies = await stampSignedContracts(crewId, crew, ['X', 'Y'], stampPng, {
+        save: true,
       });
-
       const links: Partial<Record<ContractType, string>> = {};
-      let stampedCount = 0;
-
       for (const type of ['X', 'Y'] as ContractType[]) {
-        const signature =
-          type === 'X' ? crew.signatures?.contractX : crew.signatures?.contractY;
-        // The signed copy filed in Drive — by whichever route it was signed.
-        if (!signature?.signed || !signature.driveFileId) continue;
-
-        const signedPdf = await downloadFromDrive(signature.driveFileId);
-        const stamped = await applyStampToPdf(new Uint8Array(signedPdf), stampPng);
-        const letter = type === 'X' ? 'A' : 'R';
-        const up = await uploadToFolder({
-          folderId: folders.contractsId,
-          fileName: `Contract - ${first} - ${last} - ${letter} - stamped.pdf`,
-          mimeType: 'application/pdf',
-          data: stamped,
-        });
-        links[type] = up.webViewLink;
-        stampedCount++;
+        const link = copies[type]?.link;
+        if (link) links[type] = link;
       }
+      const stampedCount = Object.keys(links).length;
 
       if (stampedCount === 0) {
         results.push({
@@ -105,12 +77,6 @@ export async function POST(req: Request) {
         });
         continue;
       }
-
-      await updateContract(crewId, {
-        ...(links.X ? { stampLinkX: links.X } : {}),
-        ...(links.Y ? { stampLinkY: links.Y } : {}),
-        stampedAt: Date.now(),
-      });
 
       await logAudit({
         action: 'contracts_stamped',

@@ -272,11 +272,12 @@ export async function downloadContracts(
   crewIds: string[],
   opts: {
     types: ContractType[];
-    kind: 'contract' | 'signed';
+    kind: 'contract' | 'signed' | 'stamped';
+    stampMissing?: 'save' | 'apply' | 'skip';
     attach: AttachmentKey[];
     format: 'zip' | 'pdf';
   },
-): Promise<{ count: number; skipped: string }> {
+): Promise<{ count: number; skipped: string; stampedNow: number }> {
   const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
   const res = await fetch('/api/contracts/download', {
     method: 'POST',
@@ -305,6 +306,7 @@ export async function downloadContracts(
   return {
     count: Number(res.headers.get('X-File-Count') ?? 0),
     skipped: decodeURIComponent(res.headers.get('X-Skipped') ?? ''),
+    stampedNow: Number(res.headers.get('X-Stamped-Now') ?? 0),
   };
 }
 

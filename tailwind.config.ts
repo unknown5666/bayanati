@@ -106,6 +106,19 @@ const config: Config = {
           '0%': { opacity: '0.55', transform: 'scale(0.9)' },
           '70%, 100%': { opacity: '0', transform: 'scale(1.7)' },
         },
+        // A rubber stamp coming down onto paper: lifted and tilted, a hard
+        // landing that squashes slightly, then settling at a slight angle.
+        'stamp-press': {
+          '0%': { opacity: '0', transform: 'translateY(-18px) scale(1.45) rotate(-22deg)' },
+          '55%': { opacity: '1', transform: 'translateY(0) scale(0.92) rotate(-9deg)' },
+          '75%': { transform: 'scale(1.03) rotate(-7deg)' },
+          '100%': { opacity: '1', transform: 'scale(1) rotate(-8deg)' },
+        },
+        'ink-bloom': {
+          '0%, 45%': { opacity: '0', transform: 'scale(0.6)' },
+          '60%': { opacity: '0.6', transform: 'scale(1)' },
+          '100%': { opacity: '0', transform: 'scale(1.5)' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both',
@@ -114,6 +127,8 @@ const config: Config = {
         'sheet-up': 'sheet-up 260ms cubic-bezier(0.16, 1, 0.3, 1) both',
         shimmer: 'shimmer 1.6s infinite',
         'pulse-ring': 'pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'stamp-press': 'stamp-press 620ms cubic-bezier(0.34, 1.2, 0.64, 1) both',
+        'ink-bloom': 'ink-bloom 900ms ease-out both',
       },
     },
   },
