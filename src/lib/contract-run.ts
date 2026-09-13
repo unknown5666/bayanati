@@ -5,7 +5,13 @@ import 'server-only';
 // 'send' mode — email each contract separately with the PDF attached and its
 // own one-time signing link.
 
-import { getCrew, getProjectName, updateContract, INTAKE_PROJECT_NAME } from './crew-db';
+import {
+  deriveStatus,
+  getCrew,
+  getProjectName,
+  updateContract,
+  INTAKE_PROJECT_NAME,
+} from './crew-db';
 import { buildPlaceholders, generateContractPdf, formatAed } from './contract-pdf';
 import { resolveCrewFolder, uploadToFolder } from './drive';
 import { createSignToken, revokeSignToken, signUrlFor } from './sign-tokens';
@@ -138,7 +144,12 @@ export async function runContracts(params: {
   }
 
   if (mode === 'send') {
-    updates.status = 'sent';
+    // Sending one contract must not knock an already-signed one back to "sent".
+    updates.status = deriveStatus(
+      Boolean(crew.signatures?.contractX?.signed),
+      Boolean(crew.signatures?.contractY?.signed),
+      'sent',
+    );
     updates.sentAt = Date.now();
   } else if (c.status === 'submitted') {
     updates.status = 'pending';

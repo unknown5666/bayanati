@@ -7,7 +7,7 @@ import { logAudit } from '@/lib/audit';
 import type { ContractType } from '@/lib/types';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 // Admin-only: apply the company stamp to the SIGNED contract PDFs of one or
 // more crew members. Accepts { crewId } or { crewIds: [...] } (for bulk). For
@@ -31,6 +31,9 @@ export async function POST(req: Request) {
   if (!crewIds.length) {
     return NextResponse.json({ error: 'crewId or crewIds required' }, { status: 400 });
   }
+  // Bulk stamping skips contracts that already carry the seal, so re-running it
+  // over a whole selection only does the work that is left.
+  const onlyMissing = body?.onlyMissing === true;
 
   // Load the stamp once — fail fast with a clear message if it's not present.
   let stampPng: Uint8Array;
@@ -61,6 +64,7 @@ export async function POST(req: Request) {
 
       const copies = await stampSignedContracts(crewId, crew, ['X', 'Y'], stampPng, {
         save: true,
+        onlyMissing,
       });
       const links: Partial<Record<ContractType, string>> = {};
       for (const type of ['X', 'Y'] as ContractType[]) {

@@ -7,6 +7,16 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type { CrewMember, SignatureRecord } from '@/lib/types';
 import { StatusBadge } from './StatusBadge';
+import { crewContractState, type OverallStage } from '@/lib/contract-state';
+
+const STAGE_ORDER: OverallStage[] = [
+  'submitted',
+  'generated',
+  'sent',
+  'partly_signed',
+  'signed',
+  'stamped',
+];
 import { projectLabel } from '@/lib/use-projects';
 import { Icon, type IconName } from '@/components/ui/Icon';
 
@@ -79,8 +89,10 @@ export function CrewSheet({
           return (c.contract.role ?? '').toLowerCase();
         case 'dateFrom':
           return c.contract.dateFrom ?? '';
-        case 'status':
-          return c.contract.status;
+        case 'status': {
+          const st = crewContractState(c);
+          return STAGE_ORDER.indexOf(st.overall) * 10 + st.stampedCount;
+        }
         default:
           return c.createdAt ?? 0;
       }
@@ -256,14 +268,22 @@ export function CrewSheet({
                 <DateCell ts={k.sentAt} />
 
                 <td className={`${TD} nums`} dir="ltr">
-                  <SignCell record={c.signatures?.contractX} sent={Boolean(k.signUrlX)} />
+                  <SignCell
+                    record={c.signatures?.contractX}
+                    sent={Boolean(k.signUrlX)}
+                    stamped={Boolean(k.stampLinkX)}
+                  />
                 </td>
                 <td className={`${TD} nums`} dir="ltr">
-                  <SignCell record={c.signatures?.contractY} sent={Boolean(k.signUrlY)} />
+                  <SignCell
+                    record={c.signatures?.contractY}
+                    sent={Boolean(k.signUrlY)}
+                    stamped={Boolean(k.stampLinkY)}
+                  />
                 </td>
 
                 <td className={TD}>
-                  <StatusBadge status={k.status} />
+                  <StatusBadge crew={c} />
                 </td>
 
                 <td className={`${TD} text-xs text-paper/[0.72] nums`} dir="ltr">
@@ -350,11 +370,26 @@ function DateCell({ ts }: { ts?: number }) {
   );
 }
 
-function SignCell({ record, sent }: { record?: SignatureRecord; sent: boolean }) {
+function SignCell({
+  record,
+  sent,
+  stamped,
+}: {
+  record?: SignatureRecord;
+  sent: boolean;
+  stamped: boolean;
+}) {
   if (record?.signed) {
     return (
-      <span className="text-ok" title={fmtDateTime(record.timestamp)}>
-        ✓ {fmtDate(record.timestamp)}
+      <span className="inline-flex items-center gap-1.5" title={fmtDateTime(record.timestamp)}>
+        <span className="text-ok">✓ {fmtDate(record.timestamp)}</span>
+        {stamped ? (
+          <span className="text-exposure" title="Stamped">
+            <Icon name="stamp" className="h-3.5 w-3.5" />
+          </span>
+        ) : (
+          <span className="text-[11px] text-paper/[0.45]">no stamp</span>
+        )}
       </span>
     );
   }

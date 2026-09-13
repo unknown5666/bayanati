@@ -6,7 +6,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from './Modal';
-import { downloadContracts, type AttachmentKey, type ContractType } from '@/lib/api-client';
+import {
+  downloadContracts,
+  stampContracts,
+  type AttachmentKey,
+  type ContractType,
+} from '@/lib/api-client';
+import { contractStage } from '@/lib/contract-state';
 import type { CrewMember } from '@/lib/types';
 import { Segmented } from '@/components/ui/Segmented';
 import { Spinner } from '@/components/ui/Spinner';
@@ -49,10 +55,9 @@ function tally(crew: CrewMember[], types: ContractType[]) {
   let unsigned = 0;
   for (const c of crew) {
     for (const t of types) {
-      const sig = t === 'X' ? c.signatures?.contractX : c.signatures?.contractY;
-      const stampLink = t === 'X' ? c.contract?.stampLinkX : c.contract?.stampLinkY;
-      if (stampLink) stamped++;
-      else if (sig?.signed) unstamped++;
+      const stage = contractStage(c, t);
+      if (stage === 'stamped') stamped++;
+      else if (stage === 'signed') unstamped++;
       else unsigned++;
     }
   }
@@ -74,6 +79,7 @@ export function DownloadModal({
   const [attach, setAttach] = useState<Set<AttachmentKey>>(new Set());
   const [format, setFormat] = useState<'zip' | 'pdf'>('zip');
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const open = Boolean(crew?.length);
@@ -100,10 +106,31 @@ export function DownloadModal({
     setBusy(true);
     setError(null);
     try {
+      let missing = stampMissing;
+      // Stamp-and-file is done up front in small batches, so a big selection
+      // never has to stamp everything inside the single download request.
+      if (kind === 'stamped' && stampMissing === 'save' && t.unstamped > 0) {
+        const needing = crew
+          .filter((c) =>
+            types.some((ty) => {
+              const st = contractStage(c, ty);
+              return st === 'signed';
+            }),
+          )
+          .map((c) => c.id);
+        setProgress({ done: 0, total: needing.length });
+        await stampContracts(needing, {
+          onlyMissing: true,
+          onProgress: (done, total) => setProgress({ done, total }),
+        });
+        setProgress(null);
+        missing = 'skip';
+      }
       const res = await downloadContracts(
         crew.map((c) => c.id),
-        { types, kind, stampMissing, attach: [...attach], format },
+        { types, kind, stampMissing: missing, attach: [...attach], format },
       );
+      if (missing !== stampMissing) res.stampedNow = t.unstamped;
       let base = `Downloaded ${res.count} contract${res.count === 1 ? '' : 's'}${format === 'pdf' ? ' as one PDF' : ' as a ZIP'}.`;
       if (res.stampedNow) {
         base += ` Stamped ${res.stampedNow} on the spot${stampMissing === 'save' ? ' and filed them in Drive' : ''}.`;
@@ -113,6 +140,7 @@ export function DownloadModal({
       setError(err instanceof Error ? err.message : 'Download failed');
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -213,7 +241,15 @@ export function DownloadModal({
             ) : (
               <Icon name={willStamp ? 'stamp' : 'download'} className="h-4 w-4" />
             )}
-            {busy ? (willStamp ? 'Stamping…' : 'Compiling…') : willStamp ? 'Stamp & download' : 'Download'}
+            {busy
+              ? progress
+                ? `Stamping ${progress.done}/${progress.total}…`
+                : willStamp
+                  ? 'Stamping…'
+                  : 'Compiling…'
+              : willStamp
+                ? 'Stamp & download'
+                : 'Download'}
           </button>
         </div>
       </div>

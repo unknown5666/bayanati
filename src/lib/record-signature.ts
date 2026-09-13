@@ -78,7 +78,11 @@ export async function recordSignedContract(params: {
   const signedX = type === 'X' ? true : Boolean(crew.signatures?.contractX?.signed);
   const signedY = type === 'Y' ? true : Boolean(crew.signatures?.contractY?.signed);
   const status = deriveStatus(signedX, signedY, crew.contract.status);
-  await adminDb().ref(`crew/${crew.id}/contract`).update({ status });
+  // A new signed copy makes any earlier stamped copy stale: drop its link so
+  // the contract shows as "signed, missing stamp" until it is stamped again.
+  await adminDb()
+    .ref(`crew/${crew.id}/contract`)
+    .update({ status, [type === 'X' ? 'stampLinkX' : 'stampLinkY']: null });
   await adminDb().ref(`crew/${crew.id}`).update({ updatedAt: Date.now() });
 
   // 3. The link for this contract is now spent, whichever way it was signed.

@@ -85,11 +85,34 @@ export interface StampResult {
   error?: string;
 }
 
-/** Apply the company stamp to the SIGNED contracts of one or more crew. */
-export function stampContracts(crewIds: string[]) {
-  return post<{ ok: boolean; results: StampResult[] }>('/api/contracts/stamp', {
-    crewIds,
-  });
+/**
+ * Apply the company stamp to the SIGNED contracts of one or more crew.
+ *
+ * Batched like bulkUpdateCrew: each crew member is a Drive download, a PDF
+ * rewrite and a Drive upload per contract, so a whole selection in one request
+ * outlives the proxy timeout (504). A failed batch only costs its own crew.
+ */
+export async function stampContracts(
+  crewIds: string[],
+  opts: { onlyMissing?: boolean; onProgress?: (done: number, total: number) => void } = {},
+): Promise<{ ok: boolean; results: StampResult[] }> {
+  const size = 3;
+  const results: StampResult[] = [];
+  for (let i = 0; i < crewIds.length; i += size) {
+    const batch = crewIds.slice(i, i + size);
+    try {
+      const res = await post<{ ok: boolean; results: StampResult[] }>('/api/contracts/stamp', {
+        crewIds: batch,
+        onlyMissing: opts.onlyMissing ?? false,
+      });
+      results.push(...res.results);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'stamping failed';
+      for (const crewId of batch) results.push({ crewId, ok: false, error: message });
+    }
+    opts.onProgress?.(Math.min(i + size, crewIds.length), crewIds.length);
+  }
+  return { ok: results.some((r) => r.ok), results };
 }
 
 export interface InboxPollResult {
@@ -132,16 +155,35 @@ export interface BulkContractResult {
   error?: string;
 }
 
-/** Generate (or generate + send) contracts for many crew in one request. */
-export function bulkContracts(
+/**
+ * Generate (or generate + send) contracts for many crew, in small batches so a
+ * large selection never hits the proxy timeout.
+ */
+export async function bulkContracts(
   crewIds: string[],
   mode: 'generate' | 'send',
   types: ContractType[] = ['X', 'Y'],
-) {
-  return post<{ ok: boolean; mode: string; results: BulkContractResult[] }>(
-    '/api/contracts/bulk',
-    { crewIds, mode, types },
-  );
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ ok: boolean; mode: string; results: BulkContractResult[] }> {
+  const size = 4;
+  const results: BulkContractResult[] = [];
+  for (let i = 0; i < crewIds.length; i += size) {
+    const batch = crewIds.slice(i, i + size);
+    try {
+      const res = await post<{ ok: boolean; mode: string; results: BulkContractResult[] }>(
+        '/api/contracts/bulk',
+        { crewIds: batch, mode, types },
+      );
+      results.push(...res.results);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'failed';
+      for (const crewId of batch) {
+        results.push({ crewId, ok: false, name: crewId, types, links: {}, signLinks: {}, error: message });
+      }
+    }
+    onProgress?.(Math.min(i + size, crewIds.length), crewIds.length);
+  }
+  return { ok: results.some((r) => r.ok), mode, results };
 }
 
 export interface BulkUpdateResult {

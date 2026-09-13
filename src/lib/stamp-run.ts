@@ -25,7 +25,7 @@ export async function stampSignedContracts(
   crew: CrewMember,
   types: ContractType[],
   stampPng: Uint8Array,
-  { save }: { save: boolean },
+  { save, onlyMissing = false }: { save: boolean; onlyMissing?: boolean },
 ): Promise<Partial<Record<ContractType, StampedCopy>>> {
   const out: Partial<Record<ContractType, StampedCopy>> = {};
   const first = crew.personal.firstName;
@@ -35,6 +35,9 @@ export async function stampSignedContracts(
   for (const type of types) {
     const signature = type === 'X' ? crew.signatures?.contractX : crew.signatures?.contractY;
     if (!signature?.signed || !signature.driveFileId) continue;
+    if (onlyMissing && (type === 'X' ? crew.contract?.stampLinkX : crew.contract?.stampLinkY)) {
+      continue;
+    }
 
     const signed = await downloadFromDrive(signature.driveFileId);
     const pdf = await applyStampToPdf(new Uint8Array(signed), stampPng);
