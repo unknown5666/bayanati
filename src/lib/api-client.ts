@@ -266,16 +266,22 @@ async function getJson<T>(url: string): Promise<T> {
  * auth header, so the response is fetched as a blob and handed to the browser
  * through a temporary object URL rather than a plain link.
  */
-export async function downloadContractsZip(
+export type AttachmentKey = 'eidFront' | 'eidBack' | 'passport';
+
+export async function downloadContracts(
   crewIds: string[],
-  types: ContractType[] = ['X', 'Y'],
-  kind: 'contract' | 'signed' = 'contract',
+  opts: {
+    types: ContractType[];
+    kind: 'contract' | 'signed';
+    attach: AttachmentKey[];
+    format: 'zip' | 'pdf';
+  },
 ): Promise<{ count: number; skipped: string }> {
   const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
   const res = await fetch('/api/contracts/download', {
     method: 'POST',
     headers,
-    body: JSON.stringify({ crewIds, types, kind }),
+    body: JSON.stringify({ crewIds, ...opts }),
   });
 
   if (!res.ok) {

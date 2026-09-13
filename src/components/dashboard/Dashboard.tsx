@@ -16,10 +16,10 @@ import { DeleteCrewModal } from './DeleteCrewModal';
 import {
   bulkContracts,
   checkInbox,
-  downloadContractsZip,
   stampContracts,
   type ContractType,
 } from '@/lib/api-client';
+import { DownloadModal } from './DownloadModal';
 import { downloadIbanCsv } from '@/lib/export-crew';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { Spinner } from '@/components/ui/Spinner';
@@ -180,12 +180,7 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
       return summarise(res.results, `Emailed ${scope.label}`);
     });
 
-  const onBulkDownload = (kind: 'contract' | 'signed') =>
-    runBulk(`download-${kind}`, async () => {
-      const res = await downloadContractsZip(ids, scope.types, kind);
-      const base = `Downloaded ${res.count} PDF${res.count === 1 ? '' : 's'} as a ZIP.`;
-      return res.skipped ? `${base} Skipped — ${res.skipped}` : base;
-    });
+  const [downloadFor, setDownloadFor] = useState<CrewMember[] | null>(null);
 
   const onBulkStamp = () =>
     runBulk('stamp', async () => {
@@ -474,12 +469,11 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
             <BulkBtn
               icon="download"
               primary
-              busy={bulkBusy === 'download-contract'}
               disabled={Boolean(bulkBusy)}
-              onClick={() => onBulkDownload('contract')}
-              title="Download every selected contract as a single ZIP"
+              onClick={() => setDownloadFor(selectedCrew)}
+              title="Download contracts (unsigned or signed), optionally with ID and passport scans, as a ZIP or one PDF"
             >
-              {`Download ${scope.label}`}
+              Download…
             </BulkBtn>
             <BulkBtn
               icon="document"
@@ -498,15 +492,6 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
               title="Generate and email each contract separately, with the PDF attached and its own signing link"
             >
               {`Send ${scope.label}`}
-            </BulkBtn>
-            <BulkBtn
-              icon="file"
-              busy={bulkBusy === 'download-signed'}
-              disabled={Boolean(bulkBusy)}
-              onClick={() => onBulkDownload('signed')}
-              title="Download the signed (or stamped) PDFs as a single ZIP"
-            >
-              Signed ZIP
             </BulkBtn>
             <BulkBtn
               icon="download"
@@ -611,6 +596,15 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
         />
       )}
 
+      <DownloadModal
+        crew={downloadFor}
+        onClose={() => setDownloadFor(null)}
+        onDone={(message, kind) => {
+          setDownloadFor(null);
+          setBulkMsg({ kind, text: message });
+        }}
+      />
+
       <DeleteCrewModal
         open={deleteOpen}
         crew={selectedCrew}
@@ -657,7 +651,18 @@ export function Dashboard({ adminEmail }: { adminEmail: string }) {
             {/* Deleting one person goes through the same confirmation as a bulk
                 delete, so there is one place where the wording and the Drive
                 choice live. */}
-            <div className="mt-6 flex justify-end border-t border-ink-800 pt-4">
+            <div className="mt-6 flex justify-between gap-2 border-t border-ink-800 pt-4">
+              <button
+                className="btn-primary btn-sm"
+                onClick={() => {
+                  setBulkMsg(null);
+                  setSelectedId(null);
+                  setDownloadFor([selected]);
+                }}
+              >
+                <Icon name="download" className="h-4 w-4" />
+                Download contract
+              </button>
               <button
                 className="btn-danger btn-sm"
                 onClick={() => {

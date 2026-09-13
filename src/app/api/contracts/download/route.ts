@@ -4,6 +4,12 @@ import { buildPlaceholders, generateContractPdf } from '@/lib/contract-pdf';
 import { downloadFromDrive, driveFileIdFromLink } from '@/lib/drive';
 import { createZip, zipSafe, type ZipEntry } from '@/lib/zip';
 import { logAudit } from '@/lib/audit';
+import {
+  ATTACHMENT_KEYS,
+  appendAttachments,
+  mergePdfs,
+  type AttachmentKey,
+} from '@/lib/contract-attach';
 import { LETTER, normaliseTypes } from '@/lib/contract-run';
 import type { ContractType } from '@/lib/types';
 
@@ -46,6 +52,11 @@ export async function POST(req: Request) {
   const types = normaliseTypes(body?.types);
   const kind: 'contract' | 'signed' = body?.kind === 'signed' ? 'signed' : 'contract';
 
+  const attach: AttachmentKey[] = Array.isArray(body?.attach)
+    ? ATTACHMENT_KEYS.filter((k) => body.attach.includes(k))
+    : [];
+  const format: 'zip' | 'pdf' = body?.format === 'pdf' ? 'pdf' : 'zip';
+
   const entries: ZipEntry[] = [];
   const skipped: string[] = [];
 
@@ -59,6 +70,21 @@ export async function POST(req: Request) {
       const name = `${crew.personal.firstName} ${crew.personal.lastName}`.trim() || crewId;
       const folder = zipSafe(name);
 
+      // ID scans are fetched once per person and appended to each contract.
+      const scans: Uint8Array[] = [];
+      for (const k of attach) {
+        const link =
+          k === 'eidFront'
+            ? crew.documents.emiratesIdFront
+            : k === 'eidBack'
+              ? crew.documents.emiratesIdBack
+              : crew.documents.passportImage;
+        const id = driveFileIdFromLink(link);
+        if (id) scans.push(new Uint8Array(await downloadFromDrive(id)));
+        else skipped.push(`${name}: no ${k} on file`);
+      }
+      const withScans = async (pdf: Uint8Array) => Buffer.from(await appendAttachments(pdf, scans));
+
       if (kind === 'contract') {
         const projectName = await getProjectName(crew.projectId);
         let produced = 0;
@@ -70,7 +96,7 @@ export async function POST(req: Request) {
           });
           entries.push({
             name: `${folder}/Contract - ${folder} - ${LETTER[type]}.pdf`,
-            data: Buffer.from(pdf),
+            data: await withScans(pdf),
           });
           produced++;
         }
@@ -91,7 +117,7 @@ export async function POST(req: Request) {
           const data = await downloadFromDrive(fileId);
           entries.push({
             name: `${folder}/Contract - ${folder} - ${LETTER[type]} - signed.pdf`,
-            data,
+            data: await withScans(new Uint8Array(data)),
           });
           produced++;
         }
@@ -109,9 +135,14 @@ export async function POST(req: Request) {
     );
   }
 
-  const zip = createZip(entries);
   const stamp = new Date().toISOString().slice(0, 10);
-  const fileName = `OEP contracts ${stamp}.zip`;
+  const single = crewIds.length === 1 ? entries[0].name.split('/')[0] : `OEP contracts ${stamp}`;
+  const asPdf = format === 'pdf';
+  const zip = asPdf
+    ? Buffer.from(await mergePdfs(entries.map((e) => new Uint8Array(e.data))))
+    : createZip(entries);
+  const fileName = `${single}.${asPdf ? 'pdf' : 'zip'}`;
+  const mime = asPdf ? 'application/pdf' : 'application/zip';
 
   await logAudit({
     action: 'contracts_bulk_downloaded',
@@ -122,11 +153,11 @@ export async function POST(req: Request) {
   // Wrapped in a Blob: the Web Response body type does not accept a raw Buffer.
   const bytes = new Uint8Array(zip.length);
   bytes.set(zip);
-  const zipBody = new Blob([bytes], { type: 'application/zip' });
+  const zipBody = new Blob([bytes], { type: mime });
   return new Response(zipBody, {
     status: 200,
     headers: {
-      'Content-Type': 'application/zip',
+      'Content-Type': mime,
       'Content-Disposition': `attachment; filename="${fileName}"`,
       'Content-Length': String(zip.length),
       'X-Skipped': encodeURIComponent(skipped.join(' | ')).slice(0, 2000),
